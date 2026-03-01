@@ -1,6 +1,6 @@
 # 🎌 Otakudesu API
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/devmoeid/api-otakudesu)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/Zyuuxyncool/otakudesu_real_api)
 [![Node](https://img.shields.io/badge/node-%3E%3D14.0.0-green.svg)](https://nodejs.org)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
@@ -19,7 +19,7 @@ Fast and stable REST API untuk scraping data anime dari [Otakudesu](https://otak
 
 ```bash
 # Clone repository
-git clone https://github.com/devmoeid/api-otakudesu.git
+git clone git@github.com:Zyuuxyncool/otakudesu_real_api.git
 cd api-otakudesu
 
 # Install dependencies
@@ -124,11 +124,6 @@ pm2 startup
 - Real-time scraping, response time tergantung website target
 - Fallback ke mock data jika scraping gagal
 - Untuk production: tambahkan rate limiting & caching
-
-## 👤 Author
-
-**devmoeid**
-- GitHub: [@devmoeid](https://github.com/devmoeid)
 
 ## ⭐ Support
 
