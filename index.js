@@ -1,5 +1,8 @@
 const express = require('express');
 const cors = require('cors');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const { scrapeHomeData } = require('./scraper-home');
 const { 
   getOngoing, 
@@ -19,9 +22,111 @@ const {
 
 const app = express();
 const PORT = 3000;
+const SCRAPER_BACKEND_URL = (process.env.SCRAPER_BACKEND_URL || '').replace(/\/$/, '');
+const SNAPSHOT_PATH = process.env.SNAPSHOT_PATH || path.join(__dirname, 'snapshot.json');
+const FORCE_SNAPSHOT_MODE = String(process.env.FORCE_SNAPSHOT_MODE || 'false').toLowerCase() === 'true';
+
+let snapshotStore = {
+  generatedAt: null,
+  data: {}
+};
+
+function loadSnapshotFromFile() {
+  try {
+    if (!fs.existsSync(SNAPSHOT_PATH)) return;
+    const raw = fs.readFileSync(SNAPSHOT_PATH, 'utf8');
+    if (!raw?.trim()) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      snapshotStore = {
+        generatedAt: parsed.generatedAt || null,
+        data: parsed.data && typeof parsed.data === 'object' ? parsed.data : {}
+      };
+    }
+  } catch (error) {
+    console.error('Snapshot load error:', error.message);
+  }
+}
+
+function persistSnapshotToFile() {
+  try {
+    const payload = {
+      generatedAt: snapshotStore.generatedAt || new Date().toISOString(),
+      data: snapshotStore.data || {}
+    };
+    fs.writeFileSync(SNAPSHOT_PATH, JSON.stringify(payload, null, 2), 'utf8');
+  } catch (error) {
+    console.error('Snapshot save error:', error.message);
+  }
+}
+
+function getSnapshot(key) {
+  return snapshotStore.data?.[key] || null;
+}
+
+function saveSnapshot(key, value) {
+  if (!key || !value) return;
+  snapshotStore.generatedAt = new Date().toISOString();
+  snapshotStore.data[key] = value;
+  persistSnapshotToFile();
+}
+
+function hasItems(arr) {
+  return Array.isArray(arr) && arr.length > 0;
+}
+
+function getSnapshotResponse(key) {
+  const response = getSnapshot(key);
+  return response || null;
+}
+
+loadSnapshotFromFile();
 
 app.use(cors());
 app.use(express.json());
+
+function isValidBackendUrl(url) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch (_) {
+    return false;
+  }
+}
+
+function shouldUseProxy() {
+  return isValidBackendUrl(SCRAPER_BACKEND_URL);
+}
+
+app.use('/anime', async (req, res, next) => {
+  if (!shouldUseProxy()) return next();
+
+  try {
+    const targetUrl = `${SCRAPER_BACKEND_URL}${req.originalUrl}`;
+    const response = await axios.get(targetUrl, {
+      timeout: 45000,
+      headers: {
+        'User-Agent': req.get('user-agent') || 'Mozilla/5.0',
+        Accept: req.get('accept') || 'application/json'
+      },
+      validateStatus: () => true
+    });
+
+    return res.status(response.status).json(response.data);
+  } catch (error) {
+    return res.status(502).json({
+      status: 'error',
+      creator: 'Lloyd.ID1112',
+      statusCode: 502,
+      statusMessage: 'Bad Gateway',
+      message: `Proxy scrape backend failed: ${error.message}`,
+      ok: false,
+      data: null,
+      pagination: null
+    });
+  }
+});
 
 // Cache system
 let cache = {
@@ -33,6 +138,33 @@ let cache = {
   genre: {},
   unlimited: { data: null, time: 0 }
 };
+
+// Bootstrap in-memory cache from bundled snapshot (helps on serverless cold start)
+const snapshotUnlimited = getSnapshotResponse('unlimited');
+if (snapshotUnlimited) {
+  cache.unlimited = { data: snapshotUnlimited, time: Date.now() };
+}
+const snapshotHome = getSnapshotResponse('home');
+if (snapshotHome) {
+  cache.home = { data: snapshotHome, time: Date.now() };
+}
+const snapshotGenre = getSnapshotResponse('genre');
+if (snapshotGenre) {
+  cache.genre.data = snapshotGenre;
+  cache.genre.time = Date.now();
+}
+const snapshotSchedule = getSnapshotResponse('schedule');
+if (snapshotSchedule) {
+  cache.schedule = { data: snapshotSchedule, time: Date.now() };
+}
+const snapshotOngoingPage1 = getSnapshotResponse('ongoing-anime-page1');
+if (snapshotOngoingPage1) {
+  cache['ongoing-anime']['ongoing-anime-page1'] = { data: snapshotOngoingPage1, time: Date.now() };
+}
+const snapshotCompletePage1 = getSnapshotResponse('complete-anime-page1');
+if (snapshotCompletePage1) {
+  cache['complete-anime']['complete-anime-page1'] = { data: snapshotCompletePage1, time: Date.now() };
+}
 
 const CACHE_DURATION = 3600000; // 1 jam
 
@@ -57,6 +189,12 @@ app.get('/', (req, res) => {
     creator: 'Lloyd.ID1112',
     message: 'Otakudesu API v3.0 - Real scraping from otakudesu.best',
     version: '3.0.0',
+    snapshot: {
+      enabled: true,
+      forceMode: FORCE_SNAPSHOT_MODE,
+      hasBundledSnapshot: Boolean(snapshotStore.generatedAt),
+      generatedAt: snapshotStore.generatedAt
+    },
     endpoints: {
       home: '/anime/home - Homepage dengan ongoing & completed',
       'ongoing-anime': '/anime/ongoing-anime - Anime ongoing dengan ?page=1',
@@ -78,15 +216,30 @@ app.get('/', (req, res) => {
 // Home - dengan scraper real otakudesu
 app.get('/anime/home', async (req, res) => {
   try {
+    if (FORCE_SNAPSHOT_MODE) {
+      const snapshotData = getSnapshotResponse('home');
+      if (snapshotData) return res.json(snapshotData);
+    }
+
     if (isValidCache('home')) {
       return res.json(cache.home.data);
     }
 
     const homeData = await scrapeHomeData();
+    if (!homeData) {
+      const snapshotData = getSnapshotResponse('home');
+      if (snapshotData) return res.json(snapshotData);
+    }
+
     cache.home = { data: homeData, time: Date.now() };
+    if (homeData) {
+      saveSnapshot('home', homeData);
+    }
     res.json(homeData);
   } catch (error) {
     console.error('Home endpoint error:', error.message);
+    const snapshotData = getSnapshotResponse('home');
+    if (snapshotData) return res.json(snapshotData);
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',
@@ -102,6 +255,11 @@ app.get('/anime/ongoing-anime', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const cacheKey = `ongoing-anime-page${page}`;
+
+    if (FORCE_SNAPSHOT_MODE && page === 1) {
+      const snapshotData = getSnapshotResponse(cacheKey);
+      if (snapshotData) return res.json(snapshotData);
+    }
     
     if (isValidCache('ongoing-anime', cacheKey)) {
       return res.json(cache['ongoing-anime'][cacheKey].data);
@@ -120,12 +278,26 @@ app.get('/anime/ongoing-anime', async (req, res) => {
       },
       pagination: result.pagination
     };
+
+    // If source blocked in production and list empty, fallback to bundled snapshot page 1
+    if (page === 1 && !hasItems(result.animeList)) {
+      const snapshotData = getSnapshotResponse(cacheKey);
+      if (snapshotData) return res.json(snapshotData);
+    }
     
     if (!cache['ongoing-anime'][cacheKey]) cache['ongoing-anime'][cacheKey] = {};
     cache['ongoing-anime'][cacheKey] = { data: response, time: Date.now() };
+    if (page === 1 && hasItems(result.animeList)) {
+      saveSnapshot(cacheKey, response);
+    }
     res.json(response);
   } catch (error) {
     console.error('Ongoing error:', error.message);
+    const page = parseInt(req.query.page) || 1;
+    if (page === 1) {
+      const snapshotData = getSnapshotResponse('ongoing-anime-page1');
+      if (snapshotData) return res.json(snapshotData);
+    }
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',
@@ -146,6 +318,11 @@ const handleCompleteAnime = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const cacheKey = `complete-anime-page${page}`;
+
+    if (FORCE_SNAPSHOT_MODE && page === 1) {
+      const snapshotData = getSnapshotResponse(cacheKey);
+      if (snapshotData) return res.json(snapshotData);
+    }
     
     if (isValidCache('complete-anime', cacheKey)) {
       return res.json(cache['complete-anime'][cacheKey].data);
@@ -164,12 +341,25 @@ const handleCompleteAnime = async (req, res) => {
       },
       pagination: result.pagination
     };
+
+    if (page === 1 && !hasItems(result.animeList)) {
+      const snapshotData = getSnapshotResponse(cacheKey);
+      if (snapshotData) return res.json(snapshotData);
+    }
     
     if (!cache['complete-anime'][cacheKey]) cache['complete-anime'][cacheKey] = {};
     cache['complete-anime'][cacheKey] = { data: response, time: Date.now() };
+    if (page === 1 && hasItems(result.animeList)) {
+      saveSnapshot(cacheKey, response);
+    }
     res.json(response);
   } catch (error) {
     console.error('Complete error:', error.message);
+    const page = parseInt(req.query.page) || 1;
+    if (page === 1) {
+      const snapshotData = getSnapshotResponse('complete-anime-page1');
+      if (snapshotData) return res.json(snapshotData);
+    }
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',
@@ -191,6 +381,11 @@ app.get('/anime/complate-anime', handleCompleteAnime);
 // Genres - All 36 genres real dari otakudesu
 app.get('/anime/genre', async (req, res) => {
   try {
+    if (FORCE_SNAPSHOT_MODE) {
+      const snapshotData = getSnapshotResponse('genre');
+      if (snapshotData) return res.json(snapshotData);
+    }
+
     if (isValidCache('genre')) {
       return res.json(cache.genre.data);
     }
@@ -205,11 +400,21 @@ app.get('/anime/genre', async (req, res) => {
       },
       pagination: null
     };
+
+    if (!hasItems(genreList)) {
+      const snapshotData = getSnapshotResponse('genre');
+      if (snapshotData) return res.json(snapshotData);
+    }
     
     cache.genre = { data: response, time: Date.now() };
+    if (hasItems(genreList)) {
+      saveSnapshot('genre', response);
+    }
     res.json(response);
   } catch (error) {
     console.error('Genres error:', error.message);
+    const snapshotData = getSnapshotResponse('genre');
+    if (snapshotData) return res.json(snapshotData);
     res.status(500).json({ status: 'error', ok: false, error: error.message });
   }
 });
@@ -471,6 +676,11 @@ app.get('/anime/server/:serverId', async (req, res) => {
 // Schedule - Real schedule dari otakudesu
 app.get('/anime/schedule', async (req, res) => {
   try {
+    if (FORCE_SNAPSHOT_MODE) {
+      const snapshotData = getSnapshotResponse('schedule');
+      if (snapshotData) return res.json(snapshotData);
+    }
+
     if (isValidCache('schedule')) {
       return res.json(cache.schedule.data);
     }
@@ -482,11 +692,21 @@ app.get('/anime/schedule', async (req, res) => {
       ok: true,
       data: scheduleData
     };
+
+    if (!scheduleData || (Array.isArray(scheduleData) && scheduleData.length === 0)) {
+      const snapshotData = getSnapshotResponse('schedule');
+      if (snapshotData) return res.json(snapshotData);
+    }
     
     cache.schedule = { data: response, time: Date.now() };
+    if (scheduleData) {
+      saveSnapshot('schedule', response);
+    }
     res.json(response);
   } catch (error) {
     console.error('Schedule error:', error.message);
+    const snapshotData = getSnapshotResponse('schedule');
+    if (snapshotData) return res.json(snapshotData);
     res.status(500).json({ status: 'error', ok: false, error: error.message });
   }
 });
@@ -494,6 +714,11 @@ app.get('/anime/schedule', async (req, res) => {
 // Unlimited - Semua anime tanpa limit
 app.get('/anime/unlimited', async (req, res) => {
   try {
+    if (FORCE_SNAPSHOT_MODE) {
+      const snapshotData = getSnapshotResponse('unlimited');
+      if (snapshotData) return res.json(snapshotData);
+    }
+
     if (isValidCache('unlimited')) {
       return res.json(cache.unlimited.data);
     }
@@ -511,11 +736,21 @@ app.get('/anime/unlimited', async (req, res) => {
       },
       pagination: null
     };
+
+    if (!hasItems(list)) {
+      const snapshotData = getSnapshotResponse('unlimited');
+      if (snapshotData) return res.json(snapshotData);
+    }
     
     cache.unlimited = { data: response, time: Date.now() };
+    if (hasItems(list)) {
+      saveSnapshot('unlimited', response);
+    }
     res.json(response);
   } catch (error) {
     console.error('Unlimited error:', error.message);
+    const snapshotData = getSnapshotResponse('unlimited');
+    if (snapshotData) return res.json(snapshotData);
     res.status(500).json({ status: 'error', ok: false, error: error.message });
   }
 });

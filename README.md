@@ -97,8 +97,30 @@ Server akan berjalan di `http://localhost:3000`
 ### Vercel
 ```bash
 npm i -g vercel
+npm run snapshot:generate
 vercel
 ```
+
+Jika data kosong di Vercel (terkena anti-bot), set environment variable:
+
+SCRAPER_BACKEND_URL=https://your-scraper-backend.example.com
+
+Lalu jalankan scraper utama di Railway/Render/VPS, dan Vercel akan otomatis proxy semua endpoint /anime/* ke backend tersebut.
+
+Alternatif tanpa VPS (mode snapshot):
+
+1. Generate snapshot sebelum deploy:
+
+```bash
+npm run snapshot:generate
+```
+
+2. Deploy ke Vercel seperti biasa.
+3. (Opsional) paksa endpoint pakai snapshot dengan env berikut:
+
+FORCE_SNAPSHOT_MODE=true
+
+Dengan mode ini, endpoint seperti `/anime/unlimited`, `/anime/ongoing-anime?page=1`, dan `/anime/complete-anime?page=1` tetap non-empty walau scraping live kena blokir.
 
 ### Railway
 1. Push ke GitHub
