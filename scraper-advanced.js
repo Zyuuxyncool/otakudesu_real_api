@@ -4,6 +4,60 @@ const cheerio = require('cheerio');
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const BASE_URL = 'https://otakudesu.best';
+const SOURCE_BASE_URLS = [
+  BASE_URL,
+  'https://otakudesu.cloud',
+  'https://otakudesu.watch'
+];
+
+function isBlockedHtml(html = '') {
+  const sample = String(html || '').slice(0, 5000).toLowerCase();
+  return (
+    sample.includes('attention required') ||
+    sample.includes('cloudflare') ||
+    sample.includes('captcha') ||
+    sample.includes('access denied') ||
+    sample.includes('forbidden')
+  );
+}
+
+async function fetchPathWithFallback(path, isValidHtml) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  let lastError = null;
+
+  for (const baseUrl of SOURCE_BASE_URLS) {
+    const targetUrl = `${baseUrl}${normalizedPath}`;
+
+    for (let i = 0; i < 2; i++) {
+      try {
+        const response = await axios.get(targetUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          },
+          timeout: 15000
+        });
+
+        const html = response.data || '';
+        if (!html || isBlockedHtml(html)) {
+          throw new Error(`Blocked or invalid HTML from ${baseUrl}`);
+        }
+
+        if (typeof isValidHtml === 'function' && !isValidHtml(html)) {
+          throw new Error(`Unexpected page markup from ${baseUrl}`);
+        }
+
+        return { html, sourceBaseUrl: baseUrl };
+      } catch (error) {
+        lastError = error;
+        if (i < 1) {
+          await new Promise((r) => setTimeout(r, 700));
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error('Failed fetching from all source domains');
+}
 
 function toAbsoluteUrl(url = '') {
   if (!url) return '';
@@ -123,8 +177,8 @@ async function getPosterFromAnimePage(slug) {
 // Scrape ongoing anime dengan pagination
 async function getOngoing(page = 1) {
   try {
-    const pageUrl = page === 1 ? `${BASE_URL}/ongoing-anime/` : `${BASE_URL}/ongoing-anime/page/${page}/`;
-    const html = await fetchWithRetry(pageUrl);
+    const pagePath = page === 1 ? '/ongoing-anime/' : `/ongoing-anime/page/${page}/`;
+    const { html } = await fetchPathWithFallback(pagePath, (body) => body.includes('venz'));
     const $ = cheerio.load(html);
     const anime = [];
 
@@ -204,7 +258,7 @@ async function getOngoing(page = 1) {
 // Scrape anime list A-Z dari web asli
 async function getAnimeListGrouped() {
   try {
-    const html = await fetchWithRetry(`${BASE_URL}/anime-list/`);
+    const { html } = await fetchPathWithFallback('/anime-list/', (body) => body.includes('venser') || body.includes('/anime/'));
     const $ = cheerio.load(html);
 
     const grouped = new Map();
@@ -246,8 +300,8 @@ async function getAnimeListGrouped() {
 // Scrape completed anime dengan pagination
 async function getCompleted(page = 1) {
   try {
-    const pageUrl = page === 1 ? `${BASE_URL}/complete-anime/` : `${BASE_URL}/complete-anime/page/${page}/`;
-    const html = await fetchWithRetry(pageUrl);
+    const pagePath = page === 1 ? '/complete-anime/' : `/complete-anime/page/${page}/`;
+    const { html } = await fetchPathWithFallback(pagePath, (body) => body.includes('venz'));
     const $ = cheerio.load(html);
     const anime = [];
 
