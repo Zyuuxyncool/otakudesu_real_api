@@ -1,0 +1,31 @@
+{
+  "name": "api-otakudesu",
+  "version": "2.0.0",
+  "description": "Fast and stable REST API for Otakudesu anime scraper",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"No tests configured\""
+  },
+  "keywords": [
+    "otakudesu",
+    "anime",
+    "api",
+    "scraper"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@kazesolo/otakudesu-api": "^1.0.1",
+    "axios": "^1.13.6",
+    "cheerio": "^1.2.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "playwright": "^1.58.2",
+    "puppeteer": "^24.37.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
