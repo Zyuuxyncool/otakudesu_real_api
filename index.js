@@ -151,26 +151,46 @@ function normalizeEmbedUrlForFallback(url = '') {
 
 function findQualityMatchingDownloadUrl(episodeData, preferredQuality = '') {
   if (!episodeData || !Array.isArray(episodeData.downloadUrl?.qualities)) return null;
-  
+
   const qualityNeedle = String(preferredQuality || '').trim().toLowerCase();
   if (!qualityNeedle || qualityNeedle === 'default') return null;
-  
+
   const qualities = episodeData.downloadUrl.qualities;
-  
-  // Find exact quality match (e.g., "Mp4 720p" when looking for "720p")
+
+  const rankProvider = (title = '', url = '') => {
+    const t = String(title || '').toLowerCase();
+    const u = String(url || '').toLowerCase();
+    if (t.includes('acefile') || u.includes('acefile.co')) return 100;
+    if (t.includes('gofile') || u.includes('gofile.io')) return 90;
+    if (t.includes('vidhide') || u.includes('vidhide')) return 80;
+    if (t.includes('mega') || u.includes('mega.nz')) return 30;
+    if (t.includes('odfiles') || u.includes('otakufiles.net')) return 10;
+    return 1;
+  };
+
   for (const quality of qualities) {
     const title = String(quality?.title || '').toLowerCase();
-    if (title.includes(qualityNeedle) && Array.isArray(quality?.urls) && quality.urls.length > 0) {
-      for (const urlObj of quality.urls) {
-        const embedUrl = normalizeEmbedUrlForFallback(urlObj?.url || '');
-        if (embedUrl && isEmbeddableFallbackUrl(embedUrl)) {
-          console.log(`Found quality-matching download URL for [${preferredQuality}]: ${quality.title}`);
-          return embedUrl;
-        }
-      }
+    if (!title.includes(qualityNeedle) || !Array.isArray(quality?.urls) || quality.urls.length === 0) continue;
+
+    const candidates = quality.urls
+      .map((urlObj) => {
+        const rawUrl = urlObj?.url || '';
+        const embedUrl = normalizeEmbedUrlForFallback(rawUrl);
+        return {
+          provider: String(urlObj?.title || ''),
+          embedUrl,
+          score: rankProvider(urlObj?.title || '', rawUrl)
+        };
+      })
+      .filter((item) => item.embedUrl && isEmbeddableFallbackUrl(item.embedUrl))
+      .sort((a, b) => b.score - a.score);
+
+    if (candidates.length > 0) {
+      console.log(`Found quality-matching download URL for [${preferredQuality}]: ${quality.title} -> ${candidates[0].provider}`);
+      return candidates[0].embedUrl;
     }
   }
-  
+
   return null;
 }
 
@@ -183,6 +203,8 @@ function isEmbeddableFallbackUrl(url = '') {
   if (lowered.includes('otakuwatch') || lowered.includes('odstream') || lowered.includes('vidhide')) return true;
   if (lowered.includes('solidfiles.com/e/')) return true;
   if (lowered.includes('mega.nz/embed/')) return true;
+  if (lowered.includes('acefile.co/')) return true;
+  if (lowered.includes('gofile.io/')) return true;
 
   return false;
 }
@@ -1679,13 +1701,18 @@ app.get('/anime/server/:serverId', async (req, res) => {
     const episodeSlug = String(req.query.episode || '').trim();
     const streamUrl = await resolveServerStream(serverId, { episodeSlug });
 
-    // Auto-upgrade classic quality server IDs to quality-matched fallback URL
-    // so selecting 480p/720p does not silently stick to provider default quality.
+    const streamSource = String(streamUrl?.source || '');
+
+    // Force fallback for classic servers when quality match is uncertain,
+    // especially when current stream comes from snapshot-derived source.
     const shouldForceQualityFallback =
       requestMeta.type === 'classic'
       && Boolean(quality)
-      && !String(streamUrl?.source || '').includes('quality-match')
-      && !String(streamUrl?.source || '').includes('quality-derived');
+      && (
+        !streamSource.includes('quality-match')
+        && !streamSource.includes('quality-derived')
+      || streamSource.includes('snapshot-')
+      );
 
     const shouldAttemptFallback =
       preferDownload ||
