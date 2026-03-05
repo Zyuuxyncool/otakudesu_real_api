@@ -1687,8 +1687,13 @@ app.get('/anime/server/:serverId', async (req, res) => {
       && !String(streamUrl?.source || '').includes('quality-match')
       && !String(streamUrl?.source || '').includes('quality-derived');
 
+    const shouldAttemptFallback =
+      preferDownload ||
+      shouldForceQualityFallback ||
+      !Boolean(streamUrl?.resolved);
+
     let finalStream = streamUrl;
-    if (preferDownload || shouldForceQualityFallback || (quality || host || episodeSlug)) {
+    if (shouldAttemptFallback) {
       const fallback = await resolveDownloadFallback({
         serverId,
         quality,
@@ -1706,29 +1711,6 @@ app.get('/anime/server/:serverId', async (req, res) => {
     }
 
     let resolvedUrl = finalStream?.embedUrl || finalStream?.url || '';
-    
-    // Smart quality fallback for desustream: try to use download URL if quality matches better
-    if (quality && resolvedUrl && resolvedUrl.includes('desustream')) {
-      console.log(`Quality [${quality}] requested for desustream embed, checking for better quality source...`);
-      try {
-        const episodeData = await getEpisodeDetail(String(episodeSlug || '').trim());
-        const downloadQualityUrl = findQualityMatchingDownloadUrl(episodeData, quality);
-        
-        if (downloadQualityUrl) {
-          console.log(`Upgrading to quality-matched download URL: ${downloadQualityUrl}`);
-          resolvedUrl = downloadQualityUrl;
-          finalStream = {
-            ...finalStream,
-            embedUrl: downloadQualityUrl,
-            url: downloadQualityUrl,
-            source: `${finalStream.source}+quality-upgrade-download`
-          };
-        }
-      } catch (err) {
-        console.warn(`Quality upgrade fallback error: ${err.message}`);
-        // Continue with original URL
-      }
-    }
     
     // Inject quality parameter to embed URL if quality is specified
     if (quality && resolvedUrl) {
