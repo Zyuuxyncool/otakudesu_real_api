@@ -1326,6 +1326,14 @@ async function getBatchLinks(animeSlug) {
 // Get stream URL dari server ID
 async function getStreamUrl(serverId) {
   try {
+    const buildCookieHeader = (setCookie = []) => {
+      if (!Array.isArray(setCookie) || setCookie.length === 0) return '';
+      return setCookie
+        .map((item) => String(item || '').split(';')[0].trim())
+        .filter(Boolean)
+        .join('; ');
+    };
+
     const parseServerId = (raw = '') => {
       const cleaned = decodeURIComponent(String(raw || '').trim());
 
@@ -1376,6 +1384,22 @@ async function getStreamUrl(serverId) {
 
     for (const baseUrl of SOURCE_BASE_URLS) {
       try {
+        let cookieHeader = '';
+        try {
+          const bootstrap = await axios.get(`${baseUrl}/`, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+              Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
+              Connection: 'keep-alive'
+            },
+            timeout: 15000
+          });
+          cookieHeader = buildCookieHeader(bootstrap?.headers?.['set-cookie']);
+        } catch (_) {
+          cookieHeader = '';
+        }
+
         const noncePayload = new URLSearchParams();
         noncePayload.append('action', 'aa1208d27f29ca340c92c66d1926f13f');
 
@@ -1383,9 +1407,12 @@ async function getStreamUrl(serverId) {
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
             'X-Requested-With': 'XMLHttpRequest',
-            'User-Agent': 'Mozilla/5.0',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            Accept: 'application/json, text/javascript, */*; q=0.01',
+            'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
             Origin: baseUrl,
-            Referer: `${baseUrl}/`
+            Referer: `${baseUrl}/`,
+            ...(cookieHeader ? { Cookie: cookieHeader } : {})
           },
           timeout: 15000
         });
@@ -1407,9 +1434,12 @@ async function getStreamUrl(serverId) {
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
             'X-Requested-With': 'XMLHttpRequest',
-            'User-Agent': 'Mozilla/5.0',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            Accept: 'application/json, text/javascript, */*; q=0.01',
+            'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
             Origin: baseUrl,
-            Referer: `${baseUrl}/`
+            Referer: `${baseUrl}/`,
+            ...(cookieHeader ? { Cookie: cookieHeader } : {})
           },
           timeout: 15000
         });
