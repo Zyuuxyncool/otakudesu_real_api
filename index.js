@@ -171,13 +171,18 @@ function injectQualityToEmbedUrl(embedUrl, quality = '') {
 
   try {
     const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
     
-    // For desustream-based URLs, inject quality parameter
-    if (parsed.hostname.includes('desustream') || 
-        parsed.hostname.includes('otakuwatch') || 
-        parsed.hostname.includes('odstream') ||
-        parsed.hostname.includes('dstream')) {
-      
+    // List of hostnames yang support quality parameter
+    const supportsQualityParam = [
+      'desustream', 'desustrem', 'odstream', 'otakuwatch', 
+      'dstream', 'vidhide', 'filemoon', 'filedown',
+      'misskopayashi.me'
+    ];
+    
+    const hostnameSupportsQuality = supportsQualityParam.some(h => hostname.includes(h));
+    
+    if (hostnameSupportsQuality) {
       // Don't add if quality parameter already exists
       if (!parsed.searchParams.has('quality')) {
         parsed.searchParams.set('quality', qualityValue);
@@ -188,11 +193,18 @@ function injectQualityToEmbedUrl(embedUrl, quality = '') {
         parsed.searchParams.set('q', qualityValue);
       }
       
-      return parsed.toString();
+      // Some players check 'res' for resolution
+      if (!parsed.searchParams.has('res')) {
+        const resMap = { '360p': '360', '480p': '480', '720p': '720', '1080p': '1080' };
+        const resValue = resMap[qualityValue] || qualityValue;
+        if (resValue) parsed.searchParams.set('res', resValue);
+      }
+      
+      const result = parsed.toString();
+      console.log(`Quality injected [${qualityValue}] to ${hostname}`);
+      return result;
     }
     
-    // For vidhide and filedon, quality is usually in the URL path or not controllable
-    // Return as-is
     return url;
   } catch (_) {
     return url;
