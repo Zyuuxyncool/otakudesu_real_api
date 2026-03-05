@@ -265,11 +265,17 @@ function getBestEmbedUrlFromEpisodeData(episodeData, preferredQuality = '') {
   const qualityItems = Array.isArray(episodeData.downloadUrl?.qualities) ? episodeData.downloadUrl.qualities : [];
 
   const exactQualityItems = qualityNeedle
-    ? qualityItems.filter((q) => String(q?.title || '').toLowerCase() === qualityNeedle)
+    ? qualityItems.filter((q) => {
+        const title = String(q?.title || '').toLowerCase();
+        return title === qualityNeedle || title.includes(qualityNeedle);
+      })
     : [];
 
   const fallbackQualityItems = qualityNeedle
-    ? qualityItems.filter((q) => String(q?.title || '').toLowerCase() !== qualityNeedle)
+    ? qualityItems.filter((q) => {
+        const title = String(q?.title || '').toLowerCase();
+        return !(title === qualityNeedle || title.includes(qualityNeedle));
+      })
     : qualityItems;
 
   for (const quality of exactQualityItems) {
@@ -282,6 +288,17 @@ function getBestEmbedUrlFromEpisodeData(episodeData, preferredQuality = '') {
   }
 
   const normalizedDefault = normalizeEmbedUrlForFallback(episodeData.defaultStreamingUrl || '');
+
+  // For requested quality, try other quality buckets first before falling back to default stream.
+  for (const quality of fallbackQualityItems) {
+    for (const u of quality?.urls || []) {
+      const normalized = normalizeEmbedUrlForFallback(u?.url || '');
+      if (normalized && isEmbeddableFallbackUrl(normalized)) {
+        return normalized;
+      }
+    }
+  }
+
   if (normalizedDefault && isEmbeddableFallbackUrl(normalizedDefault)) {
     if (/720p|1080p/i.test(qualityNeedle) && /\/otakuwatch\d+\/(?:hd\/)?v2\//i.test(normalizedDefault)) {
       return normalizedDefault.replace(/\/otakuwatch(\d+)\/(?:hd\/)?v2\//i, '/otakuwatch$1/hd/v2/');
@@ -290,15 +307,6 @@ function getBestEmbedUrlFromEpisodeData(episodeData, preferredQuality = '') {
       return normalizedDefault.replace(/\/otakuwatch(\d+)\/(?:hd\/)?v2\//i, '/otakuwatch$1/v2/');
     }
     return normalizedDefault;
-  }
-
-  for (const quality of fallbackQualityItems) {
-    for (const u of quality?.urls || []) {
-      const normalized = normalizeEmbedUrlForFallback(u?.url || '');
-      if (normalized && isEmbeddableFallbackUrl(normalized)) {
-        return normalized;
-      }
-    }
   }
 
   return normalizedDefault || '';
