@@ -1534,7 +1534,7 @@ function parseServerRequestMeta(serverId) {
   };
 }
 
-async function resolveServerStream(serverId) {
+async function resolveServerStream(serverId, options = {}) {
   const retryEpisodeSlug = decodeRetryEpisodeServerId(serverId);
   if (retryEpisodeSlug) {
     const snapshotEpisode = normalizeEpisodeSnapshotResponse(getSnapshotResponse(`episode-${retryEpisodeSlug}`));
@@ -1571,7 +1571,7 @@ async function resolveServerStream(serverId) {
 
       const realServerId = pickRealServerId(episodeData);
       if (realServerId) {
-        const resolved = await getStreamUrl(realServerId);
+        const resolved = await getStreamUrl(realServerId, options);
         if (resolved?.resolved && resolved?.embedUrl) {
           return {
             ...resolved,
@@ -1613,7 +1613,7 @@ async function resolveServerStream(serverId) {
     };
   }
 
-  let streamUrl = await getStreamUrl(serverId);
+  let streamUrl = await getStreamUrl(serverId, options);
   if (!streamUrl?.resolved) {
     const snapshotFallback = findServerFallbackFromSnapshot(serverId);
     if (snapshotFallback) {
@@ -1643,8 +1643,6 @@ async function resolveDownloadFallback({ serverId, quality = '', host = '', epis
         host: normalizedHost
       });
 
-      if (fallback?.embedUrl) return fallback;
-
       const directEmbed = getBestEmbedUrlFromEpisodeData(episodeData, normalizedQuality);
       if (directEmbed) {
         return {
@@ -1655,6 +1653,8 @@ async function resolveDownloadFallback({ serverId, quality = '', host = '', epis
           source: 'episode-download-match'
         };
       }
+
+      if (fallback?.embedUrl) return fallback;
     } catch (_) {
       // ignore live episode fallback errors
     }
@@ -1672,12 +1672,12 @@ async function resolveDownloadFallback({ serverId, quality = '', host = '', epis
 app.get('/anime/server/:serverId', async (req, res) => {
   try {
     const serverId = req.params.serverId;
-    const streamUrl = await resolveServerStream(serverId);
     const requestMeta = parseServerRequestMeta(serverId);
     const preferDownload = String(req.query.preferDownload || '').toLowerCase() === '1';
     const quality = String(req.query.quality || requestMeta.quality || '').trim();
     const host = String(req.query.host || '').trim();
     const episodeSlug = String(req.query.episode || '').trim();
+    const streamUrl = await resolveServerStream(serverId, { episodeSlug });
 
     // Auto-upgrade classic quality server IDs to quality-matched fallback URL
     // so selecting 480p/720p does not silently stick to provider default quality.

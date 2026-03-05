@@ -1324,8 +1324,9 @@ async function getBatchLinks(animeSlug) {
 }
 
 // Get stream URL dari server ID
-async function getStreamUrl(serverId) {
+async function getStreamUrl(serverId, options = {}) {
   try {
+    const episodeSlug = String(options?.episodeSlug || '').trim();
     const buildCookieHeader = (setCookie = []) => {
       if (!Array.isArray(setCookie) || setCookie.length === 0) return '';
       return setCookie
@@ -1384,9 +1385,10 @@ async function getStreamUrl(serverId) {
 
     for (const baseUrl of SOURCE_BASE_URLS) {
       try {
+        const refererUrl = episodeSlug ? `${baseUrl}/episode/${encodeURIComponent(episodeSlug)}/` : `${baseUrl}/`;
         let cookieHeader = '';
         try {
-          const bootstrap = await axios.get(`${baseUrl}/`, {
+          const bootstrap = await axios.get(refererUrl, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
               Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -1411,7 +1413,7 @@ async function getStreamUrl(serverId) {
             Accept: 'application/json, text/javascript, */*; q=0.01',
             'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
             Origin: baseUrl,
-            Referer: `${baseUrl}/`,
+            Referer: refererUrl,
             ...(cookieHeader ? { Cookie: cookieHeader } : {})
           },
           timeout: 15000
@@ -1438,7 +1440,7 @@ async function getStreamUrl(serverId) {
             Accept: 'application/json, text/javascript, */*; q=0.01',
             'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
             Origin: baseUrl,
-            Referer: `${baseUrl}/`,
+            Referer: refererUrl,
             ...(cookieHeader ? { Cookie: cookieHeader } : {})
           },
           timeout: 15000
