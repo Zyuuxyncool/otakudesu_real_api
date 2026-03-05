@@ -162,6 +162,43 @@ function isEmbeddableFallbackUrl(url = '') {
   return false;
 }
 
+function injectQualityToEmbedUrl(embedUrl, quality = '') {
+  const url = String(embedUrl || '').trim();
+  const qualityValue = String(quality || '').trim().toLowerCase();
+  
+  if (!url || !qualityValue) return url;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return url;
+
+  try {
+    const parsed = new URL(url);
+    
+    // For desustream-based URLs, inject quality parameter
+    if (parsed.hostname.includes('desustream') || 
+        parsed.hostname.includes('otakuwatch') || 
+        parsed.hostname.includes('odstream') ||
+        parsed.hostname.includes('dstream')) {
+      
+      // Don't add if quality parameter already exists
+      if (!parsed.searchParams.has('quality')) {
+        parsed.searchParams.set('quality', qualityValue);
+      }
+      
+      // Some players also check 'q' parameter
+      if (!parsed.searchParams.has('q')) {
+        parsed.searchParams.set('q', qualityValue);
+      }
+      
+      return parsed.toString();
+    }
+    
+    // For vidhide and filedon, quality is usually in the URL path or not controllable
+    // Return as-is
+    return url;
+  } catch (_) {
+    return url;
+  }
+}
+
 function getBestEmbedUrlFromEpisodeData(episodeData, preferredQuality = '') {
   if (!episodeData || typeof episodeData !== 'object') return '';
 
@@ -1631,7 +1668,22 @@ app.get('/anime/server/:serverId', async (req, res) => {
       }
     }
 
-    const resolvedUrl = finalStream?.embedUrl || finalStream?.url || '';
+    let resolvedUrl = finalStream?.embedUrl || finalStream?.url || '';
+    
+    // Inject quality parameter to embed URL if quality is specified
+    if (quality && resolvedUrl) {
+      const urlWithQuality = injectQualityToEmbedUrl(resolvedUrl, quality);
+      if (urlWithQuality !== resolvedUrl) {
+        console.log(`Quality injection: ${quality} parameter added to embed URL`);
+        resolvedUrl = urlWithQuality;
+        finalStream = {
+          ...finalStream,
+          embedUrl: urlWithQuality,
+          url: urlWithQuality,
+          source: finalStream.source ? `${finalStream.source}+quality-param` : 'quality-param-injected'
+        };
+      }
+    }
 
     res.json({
       status: 'success',
