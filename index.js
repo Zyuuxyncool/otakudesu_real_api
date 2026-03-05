@@ -75,9 +75,437 @@ function hasItems(arr) {
   return Array.isArray(arr) && arr.length > 0;
 }
 
+function hasEpisodeStreamData(episodeData) {
+  if (!episodeData || typeof episodeData !== 'object') return false;
+  if (episodeData.defaultStreamingUrl) return true;
+  const qualities = episodeData.server?.qualities;
+  return Array.isArray(qualities) && qualities.some((q) => Array.isArray(q?.serverList) && q.serverList.length > 0);
+}
+
+function createDirectServerId(url, quality = 'default', index = 0) {
+  const rawUrl = String(url || '').trim();
+  if (!rawUrl) return '';
+
+  const payload = {
+    url: rawUrl,
+    quality: String(quality || 'default'),
+    index: Number(index) || 0
+  };
+
+  return `direct-${Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')}`;
+}
+
+function decodeDirectServerId(serverId) {
+  const value = String(serverId || '');
+  if (!value.startsWith('direct-')) return null;
+
+  try {
+    const encoded = value.slice('direct-'.length);
+    if (!encoded) return null;
+    const decoded = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+    const url = String(decoded?.url || '').trim();
+    if (!url) return null;
+    return {
+      url,
+      quality: String(decoded?.quality || 'default'),
+      index: Number(decoded?.index) || 0
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function createRetryEpisodeServerId(episodeSlug) {
+  const slug = String(episodeSlug || '').trim();
+  if (!slug) return '';
+  return `retry-episode-${encodeURIComponent(slug)}`;
+}
+
+function decodeRetryEpisodeServerId(serverId) {
+  const value = String(serverId || '');
+  if (!value.startsWith('retry-episode-')) return '';
+  const encodedSlug = value.slice('retry-episode-'.length);
+  if (!encodedSlug) return '';
+
+  try {
+    return decodeURIComponent(encodedSlug);
+  } catch (_) {
+    return encodedSlug;
+  }
+}
+
+function normalizeEmbedUrlForFallback(url = '') {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+
+  if (/^https?:\/\/mega\.nz\/file\//i.test(raw)) {
+    return raw.replace('/file/', '/embed/');
+  }
+
+  if (/^https?:\/\/(?:www\.)?solidfiles\.com\/v\//i.test(raw)) {
+    return raw.replace('/v/', '/e/');
+  }
+
+  return raw;
+}
+
+function isEmbeddableFallbackUrl(url = '') {
+  const lowered = String(url || '').toLowerCase();
+  if (!lowered) return false;
+
+  if (lowered.includes('zippyshare.com')) return false;
+  if (lowered.includes('/embed/') || lowered.includes('/dstream/') || lowered.includes('/stream/')) return true;
+  if (lowered.includes('otakuwatch') || lowered.includes('odstream') || lowered.includes('vidhide')) return true;
+  if (lowered.includes('solidfiles.com/e/')) return true;
+  if (lowered.includes('mega.nz/embed/')) return true;
+
+  return false;
+}
+
+function getBestEmbedUrlFromEpisodeData(episodeData, preferredQuality = '') {
+  if (!episodeData || typeof episodeData !== 'object') return '';
+
+  const qualityNeedle = String(preferredQuality || '').toLowerCase();
+  const qualityItems = Array.isArray(episodeData.downloadUrl?.qualities) ? episodeData.downloadUrl.qualities : [];
+
+  const exactQualityItems = qualityNeedle
+    ? qualityItems.filter((q) => String(q?.title || '').toLowerCase() === qualityNeedle)
+    : [];
+
+  const fallbackQualityItems = qualityNeedle
+    ? qualityItems.filter((q) => String(q?.title || '').toLowerCase() !== qualityNeedle)
+    : qualityItems;
+
+  for (const quality of exactQualityItems) {
+    for (const u of quality?.urls || []) {
+      const normalized = normalizeEmbedUrlForFallback(u?.url || '');
+      if (normalized && isEmbeddableFallbackUrl(normalized)) {
+        return normalized;
+      }
+    }
+  }
+
+  const normalizedDefault = normalizeEmbedUrlForFallback(episodeData.defaultStreamingUrl || '');
+  if (normalizedDefault && isEmbeddableFallbackUrl(normalizedDefault)) {
+    if (/720p|1080p/i.test(qualityNeedle) && /\/otakuwatch\d+\/(?:hd\/)?v2\//i.test(normalizedDefault)) {
+      return normalizedDefault.replace(/\/otakuwatch(\d+)\/(?:hd\/)?v2\//i, '/otakuwatch$1/hd/v2/');
+    }
+    if (/360p|480p/i.test(qualityNeedle) && /\/otakuwatch\d+\/(?:hd\/)?v2\//i.test(normalizedDefault)) {
+      return normalizedDefault.replace(/\/otakuwatch(\d+)\/(?:hd\/)?v2\//i, '/otakuwatch$1/v2/');
+    }
+    return normalizedDefault;
+  }
+
+  for (const quality of fallbackQualityItems) {
+    for (const u of quality?.urls || []) {
+      const normalized = normalizeEmbedUrlForFallback(u?.url || '');
+      if (normalized && isEmbeddableFallbackUrl(normalized)) {
+        return normalized;
+      }
+    }
+  }
+
+  return normalizedDefault || '';
+}
+
+function withRetryEpisodeServerFallback(episodeData, episodeSlug) {
+  const normalized = normalizeEpisodeStreamData(episodeData);
+  if (!normalized || typeof normalized !== 'object') return normalized;
+
+  if (hasEpisodeStreamData(normalized)) {
+    return normalized;
+  }
+
+  const retryServerId = createRetryEpisodeServerId(episodeSlug);
+  if (!retryServerId) return normalized;
+
+  return {
+    ...normalized,
+    server: {
+      ...(normalized.server || {}),
+      qualities: [
+        {
+          title: 'Auto',
+          quality: 'Auto',
+          serverList: [
+            {
+              title: 'auto-retry',
+              serverId: retryServerId,
+              href: `/anime/server/${retryServerId}`
+            }
+          ]
+        }
+      ]
+    }
+  };
+}
+
+function hasRealEpisodeStreamData(episodeData) {
+  if (!episodeData || typeof episodeData !== 'object') return false;
+  if (episodeData.defaultStreamingUrl) return true;
+
+  const qualities = episodeData.server?.qualities;
+  if (!Array.isArray(qualities)) return false;
+
+  return qualities.some((quality) =>
+    Array.isArray(quality?.serverList)
+    && quality.serverList.some((server) => {
+      const id = String(server?.serverId || '').trim();
+      return id && !id.startsWith('retry-episode-');
+    })
+  );
+}
+
+function normalizeEpisodeStreamData(episodeData) {
+  if (!episodeData || typeof episodeData !== 'object') return episodeData;
+
+  const normalized = {
+    ...episodeData,
+    server: {
+      ...(episodeData.server || {}),
+      qualities: Array.isArray(episodeData.server?.qualities)
+        ? episodeData.server.qualities.map((qualityItem) => {
+            const title = String(qualityItem?.title || qualityItem?.quality || 'Default').trim();
+            const serverList = Array.isArray(qualityItem?.serverList)
+              ? qualityItem.serverList.map((server) => ({ ...server }))
+              : [];
+            return {
+              ...qualityItem,
+              title,
+              quality: qualityItem?.quality || title,
+              serverList
+            };
+          })
+        : []
+    }
+  };
+
+  const existingIds = new Set();
+  for (const qualityItem of normalized.server.qualities) {
+    for (const server of qualityItem.serverList || []) {
+      const id = String(server?.serverId || '').trim();
+      if (id) existingIds.add(id);
+    }
+  }
+
+  for (const qualityItem of normalized.server.qualities) {
+    const qualityTitle = String(qualityItem?.quality || qualityItem?.title || '').trim() || 'Default';
+    const qualityEmbed = getBestEmbedUrlFromEpisodeData(normalized, qualityTitle);
+    if (!qualityEmbed) continue;
+
+    const qualityDirectId = createDirectServerId(qualityEmbed, qualityTitle, 0);
+    if (!qualityDirectId || existingIds.has(qualityDirectId)) continue;
+
+    const directServer = {
+      title: `direct-${qualityTitle}`,
+      serverId: qualityDirectId,
+      href: `/anime/server/${qualityDirectId}`
+    };
+
+    qualityItem.serverList = [directServer, ...(Array.isArray(qualityItem.serverList) ? qualityItem.serverList : [])];
+    existingIds.add(qualityDirectId);
+  }
+
+  const defaultUrl = String(normalized.defaultStreamingUrl || '').trim();
+  if (defaultUrl) {
+    const directServerId = createDirectServerId(defaultUrl, 'Default', 0);
+    if (directServerId && !existingIds.has(directServerId)) {
+      const fallbackServer = {
+        title: 'default-stream',
+        serverId: directServerId,
+        href: `/anime/server/${directServerId}`
+      };
+
+      const defaultQualityIndex = normalized.server.qualities.findIndex(
+        (q) => String(q?.title || q?.quality || '').toLowerCase() === 'default'
+      );
+
+      if (defaultQualityIndex >= 0) {
+        normalized.server.qualities[defaultQualityIndex].serverList.push(fallbackServer);
+      } else {
+        normalized.server.qualities.unshift({
+          title: 'Default',
+          quality: 'Default',
+          serverList: [fallbackServer]
+        });
+      }
+
+      existingIds.add(directServerId);
+    }
+  }
+
+  return normalized;
+}
+
+function normalizeEpisodeSnapshotResponse(snapshotResponse) {
+  if (!snapshotResponse || typeof snapshotResponse !== 'object') return snapshotResponse;
+  if (!snapshotResponse.data || typeof snapshotResponse.data !== 'object') return snapshotResponse;
+
+  return {
+    ...snapshotResponse,
+    data: normalizeEpisodeStreamData(snapshotResponse.data)
+  };
+}
+
 function getSnapshotResponse(key) {
   const response = getSnapshot(key);
   return response || null;
+}
+
+function findServerFallbackFromSnapshot(serverId, options = {}) {
+  const targetServerId = String(serverId || '').trim();
+  if (!targetServerId) return null;
+
+  const serverIdMatch = targetServerId.match(/^(\d+)-(\d+)-(.+)$/);
+  const requestedServerIndex = Number.parseInt(serverIdMatch?.[2] || '-1', 10);
+  const requestedQuality = options?.quality
+    ? String(options.quality).toLowerCase()
+    : serverIdMatch?.[3]
+      ? String(serverIdMatch[3]).toLowerCase()
+      : '';
+  const requestedHost = options?.host ? String(options.host).toLowerCase() : '';
+
+  const blockedEmbedHosts = ['callistanise.com', 'desudrive.com', 'otakufiles.net', 'krakenfiles.com', 'pixeldrain.com'];
+  const isBlockedEmbedHost = (url = '') => {
+    const lowered = String(url || '').toLowerCase();
+    return blockedEmbedHosts.some((host) => lowered.includes(host));
+  };
+
+  const normalizeEmbedUrl = (url = '') => {
+    const raw = String(url || '').trim();
+    if (!raw) return '';
+    if (isBlockedEmbedHost(raw)) return '';
+
+    // Convert Mega file link -> Mega embed link
+    // Example: https://mega.nz/file/<id>#<key> => https://mega.nz/embed/<id>#<key>
+    if (/^https?:\/\/mega\.nz\/file\//i.test(raw)) {
+      return raw.replace('/file/', '/embed/');
+    }
+
+    // Convert Solidfiles share URL -> embed URL
+    // Example: https://www.solidfiles.com/v/<id> => https://www.solidfiles.com/e/<id>
+    if (/^https?:\/\/(?:www\.)?solidfiles\.com\/v\//i.test(raw)) {
+      return raw.replace('/v/', '/e/');
+    }
+
+    return raw;
+  };
+
+  const isLikelyEmbeddable = (url = '') => {
+    const lowered = String(url || '').toLowerCase();
+    return (
+      lowered.includes('/embed/') ||
+      lowered.includes('/dstream/') ||
+      lowered.includes('/stream/') ||
+      lowered.includes('otakuwatch') ||
+      lowered.includes('odstream') ||
+      lowered.includes('vidhide') ||
+      lowered.includes('mega.nz/embed/') ||
+      lowered.includes('solidfiles.com/e/')
+    );
+  };
+
+  const deriveQualityFromDefaultStream = (defaultUrl = '', quality = '') => {
+    const normalizedDefault = normalizeEmbedUrl(defaultUrl);
+    if (!normalizedDefault) return '';
+
+    let result = normalizedDefault;
+    const isHdReq = /720p|1080p/i.test(quality);
+    const isSdReq = /360p|480p/i.test(quality);
+
+    if (/\/otakuwatch\d+\/(?:hd\/)?v2\//i.test(result)) {
+      if (isHdReq) {
+        result = result.replace(/\/otakuwatch(\d+)\/(?:hd\/)?v2\//i, '/otakuwatch$1/hd/v2/');
+      } else if (isSdReq) {
+        result = result.replace(/\/otakuwatch(\d+)\/(?:hd\/)?v2\//i, '/otakuwatch$1/v2/');
+      }
+    }
+
+    return isLikelyEmbeddable(result) ? result : '';
+  };
+
+  const pickQualityDownloadUrl = (episodeData, quality, serverIndex = -1, host = '') => {
+    if (!quality) return '';
+
+    const qualityItems = episodeData?.downloadUrl?.qualities;
+    if (!Array.isArray(qualityItems)) return '';
+
+    const qualityEntry = qualityItems.find((item) => String(item?.title || '').toLowerCase() === quality);
+    if (!qualityEntry || !Array.isArray(qualityEntry.urls)) return '';
+
+    if (Number.isInteger(serverIndex) && serverIndex >= 0 && serverIndex < qualityEntry.urls.length) {
+      const byIndex = normalizeEmbedUrl(qualityEntry.urls[serverIndex]?.url || '');
+      if (byIndex && isLikelyEmbeddable(byIndex)) return byIndex;
+    }
+
+    if (host) {
+      const hostHit = qualityEntry.urls.find(
+        (u) => String(u?.title || '').toLowerCase().includes(host) && u?.url && !isBlockedEmbedHost(u.url)
+      );
+      if (hostHit?.url) {
+        const normalized = normalizeEmbedUrl(hostHit.url);
+        if (normalized && isLikelyEmbeddable(normalized)) return normalized;
+      }
+    }
+
+    const preferredHosts = ['solidfiles', 'otakuwatch', 'odstream', 'vidhide', 'mega', 'otakufiles', 'kraken', 'pdrain'];
+    for (const host of preferredHosts) {
+      const hit = qualityEntry.urls.find(
+        (u) => String(u?.title || '').toLowerCase().includes(host) && u?.url && !isBlockedEmbedHost(u.url)
+      );
+      if (hit?.url) {
+        const normalized = normalizeEmbedUrl(hit.url);
+        if (normalized && isLikelyEmbeddable(normalized)) return normalized;
+      }
+    }
+
+    const embeddableAny = qualityEntry.urls
+      .map((u) => normalizeEmbedUrl(u?.url || ''))
+      .find((u) => u && isLikelyEmbeddable(u));
+
+    return embeddableAny || '';
+  };
+
+  const entries = Object.entries(snapshotStore.data || {});
+  for (const [key, payload] of entries) {
+    if (!key.startsWith('episode-')) continue;
+
+    const episodeData = payload?.data;
+    const qualities = episodeData?.server?.qualities;
+    if (!Array.isArray(qualities)) continue;
+
+    const hasServerId = qualities.some((q) =>
+      Array.isArray(q?.serverList) && q.serverList.some((s) => String(s?.serverId || '') === targetServerId)
+    );
+
+    if (!hasServerId) continue;
+
+    const qualityBasedUrl = pickQualityDownloadUrl(episodeData, requestedQuality, requestedServerIndex, requestedHost);
+    const defaultQualityUrl = deriveQualityFromDefaultStream(episodeData?.defaultStreamingUrl || '', requestedQuality);
+    const defaultUrl = normalizeEmbedUrl(episodeData?.defaultStreamingUrl || '');
+    const embedUrl = qualityBasedUrl || defaultQualityUrl || defaultUrl || '';
+    if (!embedUrl) continue;
+
+    const hasRequestedQuality = Boolean(requestedQuality);
+      const source = qualityBasedUrl
+        ? 'snapshot-quality-match'
+      : defaultQualityUrl
+          ? (hasRequestedQuality ? 'snapshot-quality-derived' : 'snapshot-default-quality-fallback')
+        : defaultUrl
+          ? (hasRequestedQuality ? 'snapshot-quality-derived' : 'snapshot-fallback')
+          : 'snapshot-fallback';
+
+    return {
+      serverId: targetServerId,
+      resolved: true,
+      embedUrl,
+      iframeHtml: null,
+      source,
+      snapshotEpisodeId: key.replace(/^episode-/, '')
+    };
+  }
+
+  return null;
 }
 
 loadSnapshotFromFile();
@@ -97,6 +525,195 @@ function isValidBackendUrl(url) {
 
 function shouldUseProxy() {
   return isValidBackendUrl(SCRAPER_BACKEND_URL);
+}
+
+function normalizeTitleForCompare(title = '') {
+  return String(title || '')
+    .toLowerCase()
+    .replace(/subtitle\s*indonesia|sub\s*indo/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function dedupeEpisodeList(episodeList = []) {
+  if (!Array.isArray(episodeList)) return [];
+  const seen = new Set();
+  const result = [];
+
+  for (const item of episodeList) {
+    const episodeId = String(item?.episodeId || '').trim();
+    const key = episodeId || `${String(item?.title || '').trim()}-${String(item?.href || '').trim()}`;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+
+  return result;
+}
+
+function getAnimeDetailFromSnapshotBySlug(slug) {
+  const snapshotData = getSnapshotResponse(`anime-detail-${slug}`);
+  if (!snapshotData?.data) return null;
+
+  const detail = snapshotData.data.detail || snapshotData.data || null;
+  const episodeList = snapshotData.data.episodeList
+    || snapshotData.data.detail?.episodeList
+    || detail?.episodeList
+    || [];
+
+  if (!detail || typeof detail !== 'object') return null;
+  return {
+    detail,
+    episodeList: dedupeEpisodeList(episodeList)
+  };
+}
+
+function enrichAnimeDetailWithSnapshotEpisodes(detail, candidateSlugs = [], titleHint = '') {
+  if (!detail || typeof detail !== 'object') return detail;
+
+  const existingEpisodes = dedupeEpisodeList(detail.episodeList || []);
+  if (existingEpisodes.length > 0) {
+    return {
+      ...detail,
+      episodeList: existingEpisodes
+    };
+  }
+
+  for (const slug of candidateSlugs) {
+    const normalizedSlug = String(slug || '').trim();
+    if (!normalizedSlug) continue;
+
+    const snap = getAnimeDetailFromSnapshotBySlug(normalizedSlug);
+    if (snap?.episodeList?.length) {
+      return {
+        ...detail,
+        episodeList: snap.episodeList
+      };
+    }
+  }
+
+  const normalizedTitle = normalizeTitleForCompare(titleHint || detail.title || '');
+  if (!normalizedTitle) return detail;
+
+  const entries = Object.entries(snapshotStore.data || {});
+  for (const [key, payload] of entries) {
+    if (!key.startsWith('anime-detail-')) continue;
+
+    const snapData = payload?.data;
+    const snapDetail = snapData?.detail || snapData;
+    const snapEpisodes = dedupeEpisodeList(
+      snapData?.episodeList
+      || snapData?.detail?.episodeList
+      || snapDetail?.episodeList
+      || []
+    );
+    if (!snapEpisodes.length) continue;
+
+    const snapTitle = normalizeTitleForCompare(snapDetail?.title || '');
+    if (!snapTitle) continue;
+    if (snapTitle !== normalizedTitle) continue;
+
+    return {
+      ...detail,
+      episodeList: snapEpisodes
+    };
+  }
+
+  return detail;
+}
+
+async function resolveAnimeDetailWithAlias(slug) {
+  const originalSlug = String(slug || '').trim();
+  if (!originalSlug) {
+    return { detail: null, resolvedSlug: '', aliasUsed: false };
+  }
+
+  const primaryDetailRaw = await getAnimeDetail(originalSlug);
+  const primaryDetail = enrichAnimeDetailWithSnapshotEpisodes(primaryDetailRaw, [originalSlug], primaryDetailRaw?.title || '');
+  const primaryOk = primaryDetail && (
+    primaryDetail.title ||
+    (Array.isArray(primaryDetail.episodeList) && primaryDetail.episodeList.length > 0)
+  );
+
+  if (primaryOk) {
+    return { detail: primaryDetail, resolvedSlug: originalSlug, aliasUsed: false };
+  }
+
+  const primarySnapshot = getSnapshotResponse(`anime-detail-${originalSlug}`);
+  if (primarySnapshot?.data?.detail) {
+    const primarySnapshotDetail = enrichAnimeDetailWithSnapshotEpisodes(
+      primarySnapshot.data.detail,
+      [originalSlug],
+      primarySnapshot.data.detail?.title || ''
+    );
+    return { detail: primarySnapshotDetail, resolvedSlug: originalSlug, aliasUsed: false };
+  }
+
+  const query = originalSlug
+    .replace(/-subtitle-indonesia|-sub-indo/gi, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!query) {
+    return { detail: primaryDetail || null, resolvedSlug: originalSlug, aliasUsed: false };
+  }
+
+  let candidates = [];
+  try {
+    candidates = await searchAnime(query);
+  } catch (_) {
+    return { detail: primaryDetail || null, resolvedSlug: originalSlug, aliasUsed: false };
+  }
+
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return { detail: primaryDetail || null, resolvedSlug: originalSlug, aliasUsed: false };
+  }
+
+  const slugTokens = new Set(query.toLowerCase().split(' ').filter(Boolean));
+  const scoreCandidate = (candidate) => {
+    const id = String(candidate?.animeId || '').toLowerCase();
+    const title = String(candidate?.title || '').toLowerCase();
+    let score = 0;
+    for (const token of slugTokens) {
+      if (id.includes(token)) score += 2;
+      if (title.includes(token)) score += 1;
+    }
+    return score;
+  };
+
+  const ranked = [...candidates]
+    .map((c) => ({ c, score: scoreCandidate(c) }))
+    .sort((a, b) => b.score - a.score);
+
+  for (const { c } of ranked.slice(0, 5)) {
+    const candidateSlug = String(c?.animeId || '').trim();
+    if (!candidateSlug) continue;
+
+    const candidateSnapshot = getSnapshotResponse(`anime-detail-${candidateSlug}`);
+    if (candidateSnapshot?.data?.detail) {
+      const candidateSnapshotDetail = enrichAnimeDetailWithSnapshotEpisodes(
+        candidateSnapshot.data.detail,
+        [candidateSlug, originalSlug],
+        candidateSnapshot.data.detail?.title || c?.title || ''
+      );
+      return { detail: candidateSnapshotDetail, resolvedSlug: candidateSlug, aliasUsed: candidateSlug !== originalSlug };
+    }
+
+    const detailRaw = await getAnimeDetail(candidateSlug);
+    const detail = enrichAnimeDetailWithSnapshotEpisodes(detailRaw, [candidateSlug, originalSlug], c?.title || detailRaw?.title || '');
+    const ok = detail && (
+      detail.title ||
+      (Array.isArray(detail.episodeList) && detail.episodeList.length > 0)
+    );
+    if (ok) {
+      return { detail, resolvedSlug: candidateSlug, aliasUsed: candidateSlug !== originalSlug };
+    }
+  }
+
+  const fallbackDetail = enrichAnimeDetailWithSnapshotEpisodes(primaryDetail || null, [originalSlug], primaryDetail?.title || '');
+  return { detail: fallbackDetail || null, resolvedSlug: originalSlug, aliasUsed: false };
 }
 
 app.use('/anime', async (req, res, next) => {
@@ -133,6 +750,7 @@ let cache = {
   home: { data: null, time: 0 },
   'ongoing-anime': {},
   'complete-anime': {},
+  animeList: { data: null, time: 0 },
   trending: { data: null, time: 0 },
   schedule: { data: null, time: 0 },
   genre: {},
@@ -164,6 +782,10 @@ if (snapshotOngoingPage1) {
 const snapshotCompletePage1 = getSnapshotResponse('complete-anime-page1');
 if (snapshotCompletePage1) {
   cache['complete-anime']['complete-anime-page1'] = { data: snapshotCompletePage1, time: Date.now() };
+}
+const snapshotAnimeList = getSnapshotResponse('anime-list-grouped');
+if (snapshotAnimeList) {
+  cache.animeList = { data: snapshotAnimeList, time: Date.now() };
 }
 
 const CACHE_DURATION = 3600000; // 1 jam
@@ -425,6 +1047,11 @@ app.get('/anime/genre/:slug', async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const slug = req.params.slug;
     const cacheKey = `genre-${slug}-page${page}`;
+
+    if (FORCE_SNAPSHOT_MODE && page === 1) {
+      const snapshotData = getSnapshotResponse(cacheKey);
+      if (snapshotData) return res.json(snapshotData);
+    }
     
     if (isValidCache('genre', cacheKey)) {
       return res.json(cache.genre[cacheKey].data);
@@ -443,12 +1070,26 @@ app.get('/anime/genre/:slug', async (req, res) => {
       },
       pagination: result.pagination
     };
+
+    if (page === 1 && !hasItems(result.animeList)) {
+      const snapshotData = getSnapshotResponse(cacheKey);
+      if (snapshotData) return res.json(snapshotData);
+    }
     
     if (!cache.genre[cacheKey]) cache.genre[cacheKey] = {};
     cache.genre[cacheKey] = { data: response, time: Date.now() };
+    if (page === 1 && hasItems(result.animeList)) {
+      saveSnapshot(cacheKey, response);
+    }
     res.json(response);
   } catch (error) {
     console.error('Genre detail error:', error.message);
+    const page = parseInt(req.query.page) || 1;
+    const slug = req.params.slug;
+    if (page === 1) {
+      const snapshotData = getSnapshotResponse(`genre-${slug}-page1`);
+      if (snapshotData) return res.json(snapshotData);
+    }
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',
@@ -516,8 +1157,85 @@ app.get('/anime/search/:keyword', async (req, res) => {
 // Anime list A-Z
 app.get('/anime/anime', async (req, res) => {
   try {
+    const querySlug = String(req.query.slug || req.query.animeId || req.query.id || '').trim();
+
+    // Compatibility mode: /anime/anime?slug=<anime-slug>
+    if (querySlug) {
+      const snapshotKey = `anime-detail-${querySlug}`;
+
+      if (FORCE_SNAPSHOT_MODE) {
+        const snapshotData = getSnapshotResponse(snapshotKey);
+        if (snapshotData) {
+          const snapshotDetail = snapshotData.data?.detail || snapshotData.data || null;
+          const mergedDetail = enrichAnimeDetailWithSnapshotEpisodes(snapshotDetail, [querySlug], snapshotDetail?.title || '');
+          return res.json({
+            ...snapshotData,
+            data: {
+              detail: mergedDetail,
+              episodeList: Array.isArray(mergedDetail?.episodeList) ? mergedDetail.episodeList : []
+            }
+          });
+        }
+      }
+
+      const { detail, resolvedSlug, aliasUsed } = await resolveAnimeDetailWithAlias(querySlug);
+      const hasDetail = detail && (detail.title || (Array.isArray(detail.episodeList) && detail.episodeList.length > 0));
+
+      if (!hasDetail) {
+        const snapshotData = getSnapshotResponse(snapshotKey);
+        if (snapshotData) {
+          const snapshotDetail = snapshotData.data?.detail || snapshotData.data || null;
+          const mergedDetail = enrichAnimeDetailWithSnapshotEpisodes(snapshotDetail, [querySlug], snapshotDetail?.title || '');
+          return res.json({
+            ...snapshotData,
+            data: {
+              detail: mergedDetail,
+              episodeList: Array.isArray(mergedDetail?.episodeList) ? mergedDetail.episodeList : []
+            }
+          });
+        }
+
+        return res.status(404).json({
+          status: 'error',
+          creator: 'Lloyd.ID1112',
+          statusCode: 404,
+          statusMessage: 'Not Found',
+          message: 'Anime not found',
+          ok: false,
+          data: null,
+          pagination: null
+        });
+      }
+
+      const response = {
+        status: 'success',
+        creator: 'Lloyd.ID1112',
+        statusCode: 200,
+        statusMessage: 'OK',
+        message: aliasUsed ? `Slug normalized to ${resolvedSlug}` : '',
+        ok: true,
+        data: {
+          detail,
+          episodeList: Array.isArray(detail.episodeList) ? detail.episodeList : []
+        },
+        pagination: null
+      };
+
+      saveSnapshot(snapshotKey, response);
+      return res.json(response);
+    }
+
+    if (FORCE_SNAPSHOT_MODE) {
+      const snapshotData = getSnapshotResponse('anime-list-grouped');
+      if (snapshotData) return res.json(snapshotData);
+    }
+
+    if (isValidCache('animeList')) {
+      return res.json(cache.animeList.data);
+    }
+
     const list = await getAnimeListGrouped();
-    res.json({
+    const response = {
       status: 'success',
       creator: 'Lloyd.ID1112',
       statusCode: 200,
@@ -528,9 +1246,23 @@ app.get('/anime/anime', async (req, res) => {
         list
       },
       pagination: null
-    });
+    };
+
+    if (!hasItems(list)) {
+      const snapshotData = getSnapshotResponse('anime-list-grouped');
+      if (snapshotData) return res.json(snapshotData);
+    }
+
+    cache.animeList = { data: response, time: Date.now() };
+    if (hasItems(list)) {
+      saveSnapshot('anime-list-grouped', response);
+    }
+
+    res.json(response);
   } catch (error) {
     console.error('Anime list error:', error.message);
+    const snapshotData = getSnapshotResponse('anime-list-grouped');
+    if (snapshotData) return res.json(snapshotData);
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',
@@ -547,8 +1279,35 @@ app.get('/anime/anime', async (req, res) => {
 // Anime detail - Real data
 app.get('/anime/anime/:slug', async (req, res) => {
   try {
-    const detail = await getAnimeDetail(req.params.slug);
-    if (!detail) {
+    const slug = req.params.slug;
+    const snapshotKey = `anime-detail-${slug}`;
+
+    if (FORCE_SNAPSHOT_MODE) {
+      const snapshotData = getSnapshotResponse(snapshotKey);
+      if (snapshotData) {
+        const snapshotDetail = snapshotData.data?.detail || snapshotData.data || null;
+        const mergedDetail = enrichAnimeDetailWithSnapshotEpisodes(snapshotDetail, [slug], snapshotDetail?.title || '');
+        return res.json({
+          ...snapshotData,
+          data: mergedDetail
+        });
+      }
+    }
+
+    const { detail, resolvedSlug, aliasUsed } = await resolveAnimeDetailWithAlias(slug);
+    const hasDetail = detail && (detail.title || (Array.isArray(detail.episodeList) && detail.episodeList.length > 0));
+
+    if (!hasDetail) {
+      const snapshotData = getSnapshotResponse(snapshotKey);
+      if (snapshotData) {
+        const snapshotDetail = snapshotData.data?.detail || snapshotData.data || null;
+        const mergedDetail = enrichAnimeDetailWithSnapshotEpisodes(snapshotDetail, [slug], snapshotDetail?.title || '');
+        return res.json({
+          ...snapshotData,
+          data: mergedDetail
+        });
+      }
+
       return res.status(404).json({
         status: 'error',
         creator: 'Lloyd.ID1112',
@@ -561,16 +1320,30 @@ app.get('/anime/anime/:slug', async (req, res) => {
       });
     }
 
-    res.json({
+    const response = {
       status: 'success',
       creator: 'Lloyd.ID1112',
       statusCode: 200,
       statusMessage: 'OK',
-      message: '',
+      message: aliasUsed ? `Slug normalized to ${resolvedSlug}` : '',
       ok: true,
-      data: detail,
+      data: {
+        ...detail,
+        detail: detail,
+        episodeList: Array.isArray(detail.episodeList) ? detail.episodeList : []
+      },
       pagination: null
+    };
+
+    saveSnapshot(snapshotKey, {
+      ...response,
+      data: {
+        detail,
+        episodeList: Array.isArray(detail.episodeList) ? detail.episodeList : []
+      }
     });
+
+    res.json(response);
   } catch (error) {
     console.error('Anime detail error:', error.message);
     res.status(500).json({
@@ -589,19 +1362,47 @@ app.get('/anime/anime/:slug', async (req, res) => {
 // Episode detail - Episode dengan streaming server links
 app.get('/anime/episode/:slug', async (req, res) => {
   try {
-    const episodeData = await getEpisodeDetail(req.params.slug);
-    res.json({
+    const slug = req.params.slug;
+    const snapshotKey = `episode-${slug}`;
+
+    if (FORCE_SNAPSHOT_MODE) {
+      const snapshotData = getSnapshotResponse(snapshotKey);
+      if (snapshotData) return res.json(normalizeEpisodeSnapshotResponse(snapshotData));
+    }
+
+    const episodeDataRaw = await getEpisodeDetail(slug);
+    const episodeData = normalizeEpisodeStreamData(episodeDataRaw);
+
+    if (!hasEpisodeStreamData(episodeData)) {
+      const snapshotData = getSnapshotResponse(snapshotKey);
+      if (snapshotData) return res.json(normalizeEpisodeSnapshotResponse(snapshotData));
+    }
+
+    const responseData = withRetryEpisodeServerFallback(episodeData, slug);
+
+    const response = {
       status: 'success',
       creator: 'Lloyd.ID1112',
       statusCode: 200,
       statusMessage: 'OK',
       message: '',
       ok: true,
-      data: episodeData,
+      data: responseData,
       pagination: null
+    };
+
+    if (hasRealEpisodeStreamData(episodeData)) {
+      saveSnapshot(snapshotKey, response);
+    }
+
+    res.json({
+      ...response
     });
   } catch (error) {
     console.error('Episode error:', error.message);
+    const slug = req.params.slug;
+    const snapshotData = getSnapshotResponse(`episode-${slug}`);
+    if (snapshotData) return res.json(normalizeEpisodeSnapshotResponse(snapshotData));
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',
@@ -644,10 +1445,194 @@ app.get('/anime/batch/:slug', async (req, res) => {
   }
 });
 
+function parseServerRequestMeta(serverId) {
+  const value = String(serverId || '').trim();
+  const classic = value.match(/^(\d+)-(\d+)-(.+)$/);
+  const direct = decodeDirectServerId(value);
+  const retryEpisodeSlug = decodeRetryEpisodeServerId(value);
+
+  return {
+    serverId: value,
+    type: retryEpisodeSlug ? 'retry-episode' : direct ? 'direct' : classic ? 'classic' : 'unknown',
+    quality: direct?.quality || (classic?.[3] ? String(classic[3]) : retryEpisodeSlug ? 'Auto' : ''),
+    providerIndex: classic?.[2] ? Number.parseInt(classic[2], 10) : null,
+    retryEpisodeSlug: retryEpisodeSlug || null
+  };
+}
+
+async function resolveServerStream(serverId) {
+  const retryEpisodeSlug = decodeRetryEpisodeServerId(serverId);
+  if (retryEpisodeSlug) {
+    const snapshotEpisode = normalizeEpisodeSnapshotResponse(getSnapshotResponse(`episode-${retryEpisodeSlug}`));
+    const snapshotData = snapshotEpisode?.data;
+
+    const pickRealServerId = (episodeData) => {
+      const qualities = episodeData?.server?.qualities;
+      if (!Array.isArray(qualities)) return '';
+
+      for (const quality of qualities) {
+        for (const server of quality?.serverList || []) {
+          const id = String(server?.serverId || '').trim();
+          if (!id || id.startsWith('retry-episode-') || id.startsWith('direct-')) continue;
+          return id;
+        }
+      }
+
+      return '';
+    };
+
+    const resolveFromEpisodeData = async (episodeData) => {
+      if (!episodeData) return null;
+
+      const directEmbed = getBestEmbedUrlFromEpisodeData(episodeData);
+      if (directEmbed) {
+        return {
+          serverId,
+          resolved: true,
+          embedUrl: directEmbed,
+          iframeHtml: `<iframe src="${directEmbed}" allowfullscreen="true"></iframe>`,
+          source: 'retry-episode-direct'
+        };
+      }
+
+      const realServerId = pickRealServerId(episodeData);
+      if (realServerId) {
+        const resolved = await getStreamUrl(realServerId);
+        if (resolved?.resolved && resolved?.embedUrl) {
+          return {
+            ...resolved,
+            serverId,
+            source: 'retry-episode-resolved'
+          };
+        }
+      }
+
+      return null;
+    };
+
+    const resolvedFromSnapshot = await resolveFromEpisodeData(snapshotData);
+    if (resolvedFromSnapshot) return resolvedFromSnapshot;
+
+    const liveEpisode = withRetryEpisodeServerFallback(await getEpisodeDetail(retryEpisodeSlug), retryEpisodeSlug);
+    const resolvedFromLive = await resolveFromEpisodeData(liveEpisode);
+    if (resolvedFromLive) return resolvedFromLive;
+
+    return {
+      serverId,
+      resolved: false,
+      embedUrl: '',
+      iframeHtml: null,
+      source: 'retry-episode-failed'
+    };
+  }
+
+  const directServer = decodeDirectServerId(serverId);
+  if (directServer?.url) {
+    const directQuality = String(directServer.quality || '').toLowerCase();
+    const isDefaultDirect = !directQuality || directQuality === 'default';
+    return {
+      serverId,
+      resolved: true,
+      embedUrl: directServer.url,
+      iframeHtml: `<iframe src="${directServer.url}" allowfullscreen="true"></iframe>`,
+      source: isDefaultDirect ? 'direct-default-fallback' : 'direct-quality-match'
+    };
+  }
+
+  let streamUrl = await getStreamUrl(serverId);
+  if (!streamUrl?.resolved) {
+    const snapshotFallback = findServerFallbackFromSnapshot(serverId);
+    if (snapshotFallback) {
+      streamUrl = snapshotFallback;
+    }
+  }
+
+  return streamUrl || {
+    serverId,
+    resolved: false,
+    embedUrl: '',
+    iframeHtml: null,
+    source: 'unresolved'
+  };
+}
+
+async function resolveDownloadFallback({ serverId, quality = '', host = '', episodeSlug = '' }) {
+  const normalizedQuality = String(quality || '').trim();
+  const normalizedHost = String(host || '').trim();
+  const normalizedEpisode = String(episodeSlug || '').trim();
+
+  if (normalizedEpisode) {
+    try {
+      const episodeData = await getEpisodeDetail(normalizedEpisode);
+      const fallback = findServerFallbackFromSnapshot(serverId, {
+        quality: normalizedQuality,
+        host: normalizedHost
+      });
+
+      if (fallback?.embedUrl) return fallback;
+
+      const directEmbed = getBestEmbedUrlFromEpisodeData(episodeData, normalizedQuality);
+      if (directEmbed) {
+        return {
+          serverId,
+          resolved: true,
+          embedUrl: directEmbed,
+          iframeHtml: null,
+          source: 'episode-download-match'
+        };
+      }
+    } catch (_) {
+      // ignore live episode fallback errors
+    }
+  }
+
+  const snapshotFallback = findServerFallbackFromSnapshot(serverId, {
+    quality: normalizedQuality,
+    host: normalizedHost
+  });
+
+  return snapshotFallback || null;
+}
+
 // Server - Stream URL resolver
 app.get('/anime/server/:serverId', async (req, res) => {
   try {
-    const streamUrl = await getStreamUrl(req.params.serverId);
+    const serverId = req.params.serverId;
+    const streamUrl = await resolveServerStream(serverId);
+    const requestMeta = parseServerRequestMeta(serverId);
+    const preferDownload = String(req.query.preferDownload || '').toLowerCase() === '1';
+    const quality = String(req.query.quality || requestMeta.quality || '').trim();
+    const host = String(req.query.host || '').trim();
+    const episodeSlug = String(req.query.episode || '').trim();
+
+    // Auto-upgrade classic quality server IDs to quality-matched fallback URL
+    // so selecting 480p/720p does not silently stick to provider default quality.
+    const shouldForceQualityFallback =
+      requestMeta.type === 'classic'
+      && Boolean(quality)
+      && !String(streamUrl?.source || '').includes('quality-match')
+      && !String(streamUrl?.source || '').includes('quality-derived');
+
+    let finalStream = streamUrl;
+    if (preferDownload || shouldForceQualityFallback || (quality || host || episodeSlug)) {
+      const fallback = await resolveDownloadFallback({
+        serverId,
+        quality,
+        host,
+        episodeSlug
+      });
+
+      if (fallback?.embedUrl) {
+        finalStream = {
+          ...streamUrl,
+          ...fallback,
+          source: fallback.source || 'download-fallback'
+        };
+      }
+    }
+
+    const resolvedUrl = finalStream?.embedUrl || finalStream?.url || '';
+
     res.json({
       status: 'success',
       creator: 'Lloyd.ID1112',
@@ -655,11 +1640,63 @@ app.get('/anime/server/:serverId', async (req, res) => {
       statusMessage: 'OK',
       message: '',
       ok: true,
-      data: streamUrl,
+      data: {
+        ...finalStream,
+        url: resolvedUrl
+      },
       pagination: null
     });
   } catch (error) {
     console.error('Server error:', error.message);
+    res.status(500).json({
+      status: 'error',
+      creator: 'Lloyd.ID1112',
+      statusCode: 500,
+      statusMessage: 'Internal Server Error',
+      message: error.message,
+      ok: false,
+      data: null,
+      pagination: null
+    });
+  }
+});
+
+// Server debug - cek kualitas terpilih dan URL resolve akhir
+app.get('/anime/server-debug/:serverId', async (req, res) => {
+  try {
+    const serverId = req.params.serverId;
+    const meta = parseServerRequestMeta(serverId);
+    const streamUrl = await resolveServerStream(serverId);
+
+    let embedHost = '';
+    try {
+      embedHost = streamUrl?.embedUrl ? new URL(streamUrl.embedUrl).host : '';
+    } catch (_) {
+      embedHost = '';
+    }
+
+    res.json({
+      status: 'success',
+      creator: 'Lloyd.ID1112',
+      statusCode: 200,
+      statusMessage: 'OK',
+      message: '',
+      ok: true,
+      data: {
+        request: meta,
+        resolved: {
+          resolved: Boolean(streamUrl?.resolved),
+          source: streamUrl?.source || '',
+          embedUrl: streamUrl?.embedUrl || '',
+          embedHost,
+          iframeHtml: streamUrl?.iframeHtml || null
+        },
+        note: 'Player menu quality di host iframe bisa berbeda dari quality request API.'
+      },
+      pagination: null
+    });
+  } catch (error) {
+    console.error('Server debug error:', error.message);
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',
@@ -735,13 +1772,13 @@ app.get('/anime/unlimited', async (req, res) => {
       pagination: null
     };
 
-    if (!hasItems(list)) {
+    if (!hasItems(allAnime)) {
       const snapshotData = getSnapshotResponse('unlimited');
       if (snapshotData) return res.json(snapshotData);
     }
     
     cache.unlimited = { data: response, time: Date.now() };
-    if (hasItems(list)) {
+    if (hasItems(allAnime)) {
       saveSnapshot('unlimited', response);
     }
     res.json(response);

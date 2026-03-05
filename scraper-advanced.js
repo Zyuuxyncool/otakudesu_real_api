@@ -6,8 +6,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const BASE_URL = 'https://otakudesu.best';
 const SOURCE_BASE_URLS = [
   BASE_URL,
-  'https://otakudesu.cloud',
-  'https://otakudesu.watch'
+  'https://otakudesu.cloud'
 ];
 
 function isBlockedHtml(html = '') {
@@ -161,10 +160,11 @@ async function buildPosterMap() {
 
 async function getPosterFromAnimePage(slug) {
   try {
-    const html = await fetchWithRetry(`${BASE_URL}/anime/${slug}/`);
+    const { html } = await fetchPathWithFallback(`/anime/${slug}/`, (body) => body.includes('img') && body.includes('/anime/'));
     const $ = cheerio.load(html);
     return (
       $('div.fotoanime img').first().attr('src') ||
+      $('div.cukder img').first().attr('src') ||
       $('img.wp-post-image').first().attr('src') ||
       $('img').first().attr('src') ||
       ''
@@ -260,6 +260,9 @@ async function getAnimeListGrouped() {
   try {
     const { html } = await fetchPathWithFallback('/anime-list/', (body) => body.includes('venser') || body.includes('/anime/'));
     const $ = cheerio.load(html);
+    const posterMap = await buildPosterMap();
+    const enrichmentLimit = Number(process.env.ANIME_LIST_POSTER_ENRICH_LIMIT || 140);
+    const enrichmentConcurrency = Number(process.env.ANIME_LIST_POSTER_ENRICH_CONCURRENCY || 8);
 
     const grouped = new Map();
 
@@ -277,11 +280,36 @@ async function getAnimeListGrouped() {
 
       grouped.get(startWith).push({
         title,
+        poster: posterMap.get(animeId) || '',
         animeId,
         href: `/anime/anime/${animeId}`,
         otakudesuUrl
       });
     });
+
+    // Enrich missing posters from anime detail pages (controlled to avoid overloading)
+    const missingPosterTargets = [];
+    for (const animeList of grouped.values()) {
+      for (const anime of animeList) {
+        if (!anime.poster && anime.animeId) {
+          missingPosterTargets.push(anime);
+        }
+      }
+    }
+
+    if (missingPosterTargets.length > 0 && enrichmentLimit > 0) {
+      const targets = missingPosterTargets.slice(0, enrichmentLimit);
+      for (let i = 0; i < targets.length; i += enrichmentConcurrency) {
+        const batch = targets.slice(i, i + enrichmentConcurrency);
+        const posters = await Promise.all(
+          batch.map((anime) => getPosterFromAnimePage(anime.animeId))
+        );
+
+        posters.forEach((poster, idx) => {
+          if (poster) batch[idx].poster = poster;
+        });
+      }
+    }
 
     const list = [...grouped.entries()]
       .sort(([a], [b]) => sortStartWith(a, b))
@@ -534,11 +562,24 @@ async function searchAnime(query) {
 // Get anime detail
 async function getAnimeDetail(slug) {
   try {
-    const html = await fetchWithRetry(`${BASE_URL}/anime/${slug}/`);
+    const { html } = await fetchPathWithFallback(
+      `/anime/${slug}/`,
+      (body) => body.includes('infozingle') || body.includes('/episode/') || body.includes('/batch/')
+    );
     const $ = cheerio.load(html);
 
-    const title = $('h1.entry-title').first().text().trim().replace(/\s+Subtitle Indonesia$/i, '').trim();
-    const poster = $('div.fotoanime img').first().attr('src') || '';
+    const title = (
+      $('h1.entry-title').first().text().trim() ||
+      $('h1').first().text().trim() ||
+      $('meta[property="og:title"]').attr('content') ||
+      ''
+    ).replace(/\s+Subtitle Indonesia$/i, '').trim();
+
+    const poster =
+      $('div.fotoanime img').first().attr('src') ||
+      $('div.cukder img').first().attr('src') ||
+      $('meta[property="og:image"]').attr('content') ||
+      '';
 
     const infoMap = {};
     $('div.infozingle p').each((_, el) => {
@@ -567,26 +608,108 @@ async function getAnimeDetail(slug) {
     });
 
     const episodeList = [];
-    $('div.episodelist ul li, div.eplister ul li').each((_, el) => {
-      const $el = $(el);
-      const $a = $el.find('a').first();
-      const epTitle = $a.text().trim();
-      const epUrl = toAbsoluteUrl($a.attr('href') || '');
-      const episodeId = extractEpisodeSlug(epUrl);
-      if (!epTitle || !episodeId) return;
+    const seenEpisode = new Set();
 
-      const eps = parseInt(epTitle.match(/episode\s*(\d+)/i)?.[1] || '0', 10) || 0;
-      const date = $el.find('span.zeebr').first().text().trim() || '';
+    // Try multiple selectors to find episode lists
+    const episodeSelectors = [
+      'div.episodelist ul li',
+      'div.eplister ul li',
+      'div.venser ul li',
+      'div.epslis ul li',
+      'div.epstab ul li',
+      'div[class*="episode"] ul li',
+      'div[class*="eplister"] ul li',
+      'ul.eplister li',
+      'ul.episodes li'
+    ];
 
-      episodeList.push({
-        title: epTitle,
-        eps,
-        date,
-        episodeId,
-        href: `/anime/episode/${episodeId}`,
-        otakudesuUrl: epUrl
+    for (const selector of episodeSelectors) {
+      if (episodeList.length > 0) break;
+
+      $(selector).each((_, el) => {
+        const $el = $(el);
+        const $a = $el.find('a[href*="/episode/"]').first();
+        const epTitle = $a.text().trim();
+        const epUrl = toAbsoluteUrl($a.attr('href') || '');
+        const episodeId = extractEpisodeSlug(epUrl);
+        if (!epTitle || !episodeId) return;
+        if (seenEpisode.has(episodeId)) return;
+        seenEpisode.add(episodeId);
+
+        const eps = parseInt(epTitle.match(/episode\s*(\d+)/i)?.[1] || epTitle.match(/\d+/)?.[0] || '0', 10) || 0;
+        const date = $el.find('span.zeebr, span.date, span[class*="date"]').first().text().trim() || '';
+
+        episodeList.push({
+          title: epTitle,
+          eps,
+          date,
+          episodeId,
+          href: `/anime/episode/${episodeId}`,
+          otakudesuUrl: epUrl
+        });
       });
-    });
+    }
+
+    // Fallback: find episodes from pagination links
+    if (episodeList.length === 0) {
+      const paginationLinks = [];
+      $('a[href*="/episode/"]').each((_, a) => {
+        const $a = $(a);
+        const epTitle = $a.text().trim();
+        const epUrl = toAbsoluteUrl($a.attr('href') || '');
+        const isInPagination = $a.closest('nav, .pagination, [class*="pagination"]').length > 0;
+        
+        if (isInPagination) {
+          paginationLinks.push({ epTitle, epUrl, $a });
+        }
+      });
+
+      // If we found pagination, use those as fallback
+      if (paginationLinks.length > 0) {
+        for (const { epTitle, epUrl } of paginationLinks) {
+          const episodeId = extractEpisodeSlug(epUrl);
+          if (!epTitle || !episodeId) continue;
+          if (seenEpisode.has(episodeId)) continue;
+          seenEpisode.add(episodeId);
+
+          const eps = parseInt(epTitle.match(/episode\s*(\d+)/i)?.[1] || epTitle.match(/\d+/)?.[0] || '0', 10) || 0;
+          episodeList.push({
+            title: epTitle,
+            eps,
+            date: '',
+            episodeId,
+            href: `/anime/episode/${episodeId}`,
+            otakudesuUrl: epUrl
+          });
+        }
+      }
+    }
+
+    // Final fallback: extract all episode links from page
+    if (episodeList.length === 0) {
+      $('a[href*="/episode/"]').each((_, a) => {
+        const $a = $(a);
+        const epTitle = $a.text().trim();
+        const epUrl = toAbsoluteUrl($a.attr('href') || '');
+        const episodeId = extractEpisodeSlug(epUrl);
+        if (!epTitle || !episodeId) return;
+        if (seenEpisode.has(episodeId)) return;
+        // In fallback mode, be more lenient and also accept links that don't look like episodes
+        const lengthThreshold = epTitle.length < 100; // Skip very long text
+        if (!lengthThreshold) return;
+        seenEpisode.add(episodeId);
+
+        const eps = parseInt(epTitle.match(/episode\s*(\d+)/i)?.[1] || epTitle.match(/\d+/)?.[0] || '0', 10) || 0;
+        episodeList.push({
+          title: epTitle,
+          eps,
+          date: '',
+          episodeId,
+          href: `/anime/episode/${episodeId}`,
+          otakudesuUrl: epUrl
+        });
+      });
+    }
 
     const recommendedAnimeList = [];
     $('div.isi-recommend-anime-series div.isi-konten').each((_, el) => {
@@ -706,24 +829,35 @@ async function getGenres() {
 // Get anime by genre dengan pagination
 async function getAnimeByGenre(genreSlug, page = 1) {
   try {
-    const pageUrl = page === 1 
-      ? `${BASE_URL}/genres/${genreSlug}/` 
-      : `${BASE_URL}/genres/${genreSlug}/page/${page}/`;
-    const html = await fetchWithRetry(pageUrl);
+    const pagePath = page === 1
+      ? `/genres/${genreSlug}/`
+      : `/genres/${genreSlug}/page/${page}/`;
+
+    const { html } = await fetchPathWithFallback(
+      pagePath,
+      (body) => body.includes('col-anime') || body.includes('/anime/')
+    );
+
     const $ = cheerio.load(html);
     const anime = [];
 
-    $('div.col-md-4.col-anime-con div.col-anime').each((_, el) => {
+    // Selector utama + fallback selector jika markup berubah
+    const animeNodes = $('div.col-md-4.col-anime-con div.col-anime');
+    const nodesToParse = animeNodes.length > 0
+      ? animeNodes
+      : $('div.col-anime-con div.col-anime, div.col-anime, div.venz ul li');
+
+    nodesToParse.each((_, el) => {
       const $el = $(el);
 
-      const $titleLink = $el.find('div.col-anime-title a').first();
+      const $titleLink = $el.find('div.col-anime-title a, h2.jdlflm a, a').first();
       const title = $titleLink.text().trim();
       const otakudesuUrl = toAbsoluteUrl($titleLink.attr('href') || '');
       const animeId = extractAnimeSlug(otakudesuUrl);
 
       if (!title || !animeId) return;
 
-      const poster = $el.find('div.col-anime-cover img').first().attr('src') || '';
+      const poster = $el.find('div.col-anime-cover img, img.wp-post-image, img').first().attr('src') || '';
       const studios = $el.find('div.col-anime-studio').first().text().trim() || '';
       const score = $el.find('div.col-anime-rating').first().text().trim() || '';
       const season = $el.find('div.col-anime-date').first().text().trim() || '';
@@ -824,7 +958,10 @@ async function getAnimeByGenre(genreSlug, page = 1) {
 // Get episode detail dengan streaming server links
 async function getEpisodeDetail(episodeSlug) {
   try {
-    const html = await fetchWithRetry(`${BASE_URL}/episode/${episodeSlug}/`);
+    const { html } = await fetchPathWithFallback(
+      `/episode/${episodeSlug}/`,
+      (body) => body.includes('mirrorstream') || body.includes('lightsVideo') || body.includes('/episode/')
+    );
     const $ = cheerio.load(html);
 
     const title = $('h1.entry-title, h1').first().text().trim();
@@ -855,6 +992,8 @@ async function getEpisodeDetail(episodeSlug) {
       return encodedData || `${quality}-${index}`;
     };
 
+    const normalizeQuality = (q = '') => String(q || '').trim().toLowerCase();
+
     const qualityMap = new Map();
     $('div.mirrorstream ul').each((_, ul) => {
       const $ul = $(ul);
@@ -874,7 +1013,7 @@ async function getEpisodeDetail(episodeSlug) {
           try {
             const decoded = Buffer.from(encodedContent, 'base64').toString('utf8');
             const parsed = JSON.parse(decoded);
-            if (parsed?.q) qualityTitle = parsed.q;
+            if (parsed?.q) qualityTitle = normalizeQuality(parsed.q);
           } catch (_) {
             // ignore
           }
@@ -888,7 +1027,7 @@ async function getEpisodeDetail(episodeSlug) {
         });
       });
 
-      const normalizedTitle = qualityTitle || 'unknown';
+      const normalizedTitle = normalizeQuality(qualityTitle) || 'unknown';
       if (!qualityMap.has(normalizedTitle)) {
         qualityMap.set(normalizedTitle, []);
       }
@@ -903,11 +1042,24 @@ async function getEpisodeDetail(episodeSlug) {
     ];
 
     const server = {
-      qualities: sortedQualityTitles.map((q) => ({
-        title: q,
-        serverList: qualityMap.get(q) || []
-      }))
+      qualities: sortedQualityTitles
+        .map((q) => ({
+          title: q,
+          serverList: qualityMap.get(q) || []
+        }))
+        .filter((q) => Array.isArray(q.serverList) && q.serverList.length > 0)
     };
+
+    let resolvedDefaultStreamingUrl = defaultStreamingUrl;
+    if (!resolvedDefaultStreamingUrl && server.qualities.length > 0) {
+      const firstServerId = server.qualities[0]?.serverList?.[0]?.serverId;
+      if (firstServerId) {
+        const resolved = await getStreamUrl(firstServerId);
+        if (resolved?.resolved && resolved?.embedUrl) {
+          resolvedDefaultStreamingUrl = resolved.embedUrl;
+        }
+      }
+    }
 
     const downloadUrl = {
       qualities: []
@@ -994,7 +1146,7 @@ async function getEpisodeDetail(episodeSlug) {
       title,
       animeId,
       releaseTime,
-      defaultStreamingUrl,
+      defaultStreamingUrl: resolvedDefaultStreamingUrl,
       hasPrevEpisode: Boolean(prevEpisodeId),
       prevEpisode: prevEpisodeId
         ? {
@@ -1220,67 +1372,83 @@ async function getStreamUrl(serverId) {
       };
     }
 
-    const noncePayload = new URLSearchParams();
-    noncePayload.append('action', 'aa1208d27f29ca340c92c66d1926f13f');
+    let lastMessage = 'Nonce tidak ditemukan dari server.';
 
-    const nonceResponse = await axios.post(`${BASE_URL}/wp-admin/admin-ajax.php`, noncePayload.toString(), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'X-Requested-With': 'XMLHttpRequest',
-        'User-Agent': 'Mozilla/5.0',
-        Origin: BASE_URL,
-        Referer: `${BASE_URL}/`
-      },
-      timeout: 15000
-    });
+    for (const baseUrl of SOURCE_BASE_URLS) {
+      try {
+        const noncePayload = new URLSearchParams();
+        noncePayload.append('action', 'aa1208d27f29ca340c92c66d1926f13f');
 
-    const nonce = nonceResponse?.data?.data;
-    if (!nonce) {
-      return {
-        serverId,
-        resolved: false,
-        embedUrl: null,
-        iframeHtml: null,
-        message: 'Nonce tidak ditemukan dari server.'
-      };
+        const nonceResponse = await axios.post(`${baseUrl}/wp-admin/admin-ajax.php`, noncePayload.toString(), {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-Requested-With': 'XMLHttpRequest',
+            'User-Agent': 'Mozilla/5.0',
+            Origin: baseUrl,
+            Referer: `${baseUrl}/`
+          },
+          timeout: 15000
+        });
+
+        const nonce = nonceResponse?.data?.data;
+        if (!nonce) {
+          lastMessage = `Nonce tidak ditemukan dari ${baseUrl}`;
+          continue;
+        }
+
+        const streamPayload = new URLSearchParams();
+        streamPayload.append('id', String(parsedServer.id));
+        streamPayload.append('i', String(parsedServer.i));
+        streamPayload.append('q', String(parsedServer.q));
+        streamPayload.append('nonce', String(nonce));
+        streamPayload.append('action', '2a3505c93b0035d3f455df82bf976b84');
+
+        const streamResponse = await axios.post(`${baseUrl}/wp-admin/admin-ajax.php`, streamPayload.toString(), {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-Requested-With': 'XMLHttpRequest',
+            'User-Agent': 'Mozilla/5.0',
+            Origin: baseUrl,
+            Referer: `${baseUrl}/`
+          },
+          timeout: 15000
+        });
+
+        const encodedIframeHtml = streamResponse?.data?.data || '';
+        const iframeHtml = encodedIframeHtml
+          ? Buffer.from(encodedIframeHtml, 'base64').toString('utf8')
+          : '';
+
+        const $$ = cheerio.load(iframeHtml || '');
+        const embedUrl = $$('iframe').first().attr('src') || '';
+
+        if (embedUrl) {
+          return {
+            serverId,
+            resolved: true,
+            embedUrl,
+            iframeHtml: iframeHtml || null,
+            request: {
+              id: parsedServer.id,
+              i: parsedServer.i,
+              q: parsedServer.q
+            },
+            sourceBaseUrl: baseUrl
+          };
+        }
+
+        lastMessage = `Embed URL kosong dari ${baseUrl}`;
+      } catch (error) {
+        lastMessage = error.message;
+      }
     }
-
-    const streamPayload = new URLSearchParams();
-    streamPayload.append('id', String(parsedServer.id));
-    streamPayload.append('i', String(parsedServer.i));
-    streamPayload.append('q', String(parsedServer.q));
-    streamPayload.append('nonce', String(nonce));
-    streamPayload.append('action', '2a3505c93b0035d3f455df82bf976b84');
-
-    const streamResponse = await axios.post(`${BASE_URL}/wp-admin/admin-ajax.php`, streamPayload.toString(), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'X-Requested-With': 'XMLHttpRequest',
-        'User-Agent': 'Mozilla/5.0',
-        Origin: BASE_URL,
-        Referer: `${BASE_URL}/`
-      },
-      timeout: 15000
-    });
-
-    const encodedIframeHtml = streamResponse?.data?.data || '';
-    const iframeHtml = encodedIframeHtml
-      ? Buffer.from(encodedIframeHtml, 'base64').toString('utf8')
-      : '';
-
-    const $$ = cheerio.load(iframeHtml || '');
-    const embedUrl = $$('iframe').first().attr('src') || '';
 
     return {
       serverId,
-      resolved: Boolean(embedUrl),
-      embedUrl: embedUrl || null,
-      iframeHtml: iframeHtml || null,
-      request: {
-        id: parsedServer.id,
-        i: parsedServer.i,
-        q: parsedServer.q
-      }
+      resolved: false,
+      embedUrl: null,
+      iframeHtml: null,
+      message: lastMessage
     };
   } catch (error) {
     console.error('Error resolving stream URL:', error.message);
