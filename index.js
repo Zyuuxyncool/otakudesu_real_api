@@ -149,6 +149,31 @@ function normalizeEmbedUrlForFallback(url = '') {
   return raw;
 }
 
+function findQualityMatchingDownloadUrl(episodeData, preferredQuality = '') {
+  if (!episodeData || !Array.isArray(episodeData.downloadUrl?.qualities)) return null;
+  
+  const qualityNeedle = String(preferredQuality || '').trim().toLowerCase();
+  if (!qualityNeedle || qualityNeedle === 'default') return null;
+  
+  const qualities = episodeData.downloadUrl.qualities;
+  
+  // Find exact quality match (e.g., "Mp4 720p" when looking for "720p")
+  for (const quality of qualities) {
+    const title = String(quality?.title || '').toLowerCase();
+    if (title.includes(qualityNeedle) && Array.isArray(quality?.urls) && quality.urls.length > 0) {
+      for (const urlObj of quality.urls) {
+        const embedUrl = normalizeEmbedUrlForFallback(urlObj?.url || '');
+        if (embedUrl && isEmbeddableFallbackUrl(embedUrl)) {
+          console.log(`Found quality-matching download URL for [${preferredQuality}]: ${quality.title}`);
+          return embedUrl;
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
 function isEmbeddableFallbackUrl(url = '') {
   const lowered = String(url || '').toLowerCase();
   if (!lowered) return false;
@@ -1681,6 +1706,29 @@ app.get('/anime/server/:serverId', async (req, res) => {
     }
 
     let resolvedUrl = finalStream?.embedUrl || finalStream?.url || '';
+    
+    // Smart quality fallback for desustream: try to use download URL if quality matches better
+    if (quality && resolvedUrl && resolvedUrl.includes('desustream')) {
+      console.log(`Quality [${quality}] requested for desustream embed, checking for better quality source...`);
+      try {
+        const episodeData = await getEpisodeDetail(String(episodeSlug || '').trim());
+        const downloadQualityUrl = findQualityMatchingDownloadUrl(episodeData, quality);
+        
+        if (downloadQualityUrl) {
+          console.log(`Upgrading to quality-matched download URL: ${downloadQualityUrl}`);
+          resolvedUrl = downloadQualityUrl;
+          finalStream = {
+            ...finalStream,
+            embedUrl: downloadQualityUrl,
+            url: downloadQualityUrl,
+            source: `${finalStream.source}+quality-upgrade-download`
+          };
+        }
+      } catch (err) {
+        console.warn(`Quality upgrade fallback error: ${err.message}`);
+        // Continue with original URL
+      }
+    }
     
     // Inject quality parameter to embed URL if quality is specified
     if (quality && resolvedUrl) {
