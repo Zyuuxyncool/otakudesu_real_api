@@ -6,7 +6,8 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const BASE_URL = 'https://otakudesu.best';
 const SOURCE_BASE_URLS = [
   BASE_URL,
-  'https://otakudesu.cloud'
+  'https://otakudesu.cloud',
+  'https://otakudesu.blog'
 ];
 
 function isBlockedHtml(html = '') {
