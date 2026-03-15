@@ -78,9 +78,20 @@ function hasItems(arr) {
 
 function hasEpisodeStreamData(episodeData) {
   if (!episodeData || typeof episodeData !== 'object') return false;
-  if (episodeData.defaultStreamingUrl) return true;
+
+  const defaultStreamingUrl = String(episodeData.defaultStreamingUrl || '').trim();
+  if (defaultStreamingUrl && defaultStreamingUrl !== '#' && !/^javascript:/i.test(defaultStreamingUrl)) {
+    return true;
+  }
+
   const qualities = episodeData.server?.qualities;
-  return Array.isArray(qualities) && qualities.some((q) => Array.isArray(q?.serverList) && q.serverList.length > 0);
+  return Array.isArray(qualities) && qualities.some((q) =>
+    Array.isArray(q?.serverList)
+    && q.serverList.some((s) => {
+      const serverId = String(s?.serverId || '').trim();
+      return Boolean(serverId);
+    })
+  );
 }
 
 function createDirectServerId(url, quality = 'default', index = 0) {
@@ -1736,7 +1747,13 @@ app.get('/anime/episode/:slug', async (req, res) => {
 
     if (FORCE_SNAPSHOT_MODE) {
       const snapshotData = getSnapshotResponse(snapshotKey);
-      if (snapshotData) return res.json(normalizeEpisodeSnapshotResponse(snapshotData));
+      if (snapshotData) {
+        const normalizedSnapshot = normalizeEpisodeSnapshotResponse(snapshotData);
+        return res.json({
+          ...normalizedSnapshot,
+          data: withRetryEpisodeServerFallback(normalizedSnapshot?.data, slug)
+        });
+      }
     }
 
     const episodeDataRaw = await getEpisodeDetail(slug);
@@ -1744,7 +1761,13 @@ app.get('/anime/episode/:slug', async (req, res) => {
 
     if (!hasEpisodeStreamData(episodeData)) {
       const snapshotData = getSnapshotResponse(snapshotKey);
-      if (snapshotData) return res.json(normalizeEpisodeSnapshotResponse(snapshotData));
+      if (snapshotData) {
+        const normalizedSnapshot = normalizeEpisodeSnapshotResponse(snapshotData);
+        return res.json({
+          ...normalizedSnapshot,
+          data: withRetryEpisodeServerFallback(normalizedSnapshot?.data, slug)
+        });
+      }
     }
 
     const responseData = withRetryEpisodeServerFallback(episodeData, slug);
@@ -1771,7 +1794,13 @@ app.get('/anime/episode/:slug', async (req, res) => {
     console.error('Episode error:', error.message);
     const slug = req.params.slug;
     const snapshotData = getSnapshotResponse(`episode-${slug}`);
-    if (snapshotData) return res.json(normalizeEpisodeSnapshotResponse(snapshotData));
+    if (snapshotData) {
+      const normalizedSnapshot = normalizeEpisodeSnapshotResponse(snapshotData);
+      return res.json({
+        ...normalizedSnapshot,
+        data: withRetryEpisodeServerFallback(normalizedSnapshot?.data, slug)
+      });
+    }
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',
