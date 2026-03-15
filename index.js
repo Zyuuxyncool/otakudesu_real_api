@@ -23,6 +23,7 @@ const {
 const app = express();
 const PORT = 3000;
 const SCRAPER_BACKEND_URL = (process.env.SCRAPER_BACKEND_URL || '').replace(/\/$/, '');
+const ENABLE_PROXY_BACKEND = String(process.env.ENABLE_PROXY_BACKEND || 'false').toLowerCase() === 'true';
 const SNAPSHOT_PATH = process.env.SNAPSHOT_PATH || path.join(__dirname, 'snapshot.json');
 const FORCE_SNAPSHOT_MODE = String(process.env.FORCE_SNAPSHOT_MODE || 'false').toLowerCase() === 'true';
 
@@ -628,7 +629,7 @@ function isValidBackendUrl(url) {
 }
 
 function shouldUseProxy() {
-  return isValidBackendUrl(SCRAPER_BACKEND_URL);
+  return ENABLE_PROXY_BACKEND && isValidBackendUrl(SCRAPER_BACKEND_URL);
 }
 
 function normalizeTitleForCompare(title = '') {
