@@ -760,6 +760,69 @@ function createSyntheticDetailFromCandidate(candidate, fallbackSlug = '') {
   };
 }
 
+async function enrichSyntheticDetailWithJikan(detail) {
+  if (!detail || typeof detail !== 'object') return detail;
+
+  const hasRichFields =
+    Boolean(detail?.score) ||
+    Boolean(detail?.status) ||
+    (Array.isArray(detail?.genreList) && detail.genreList.length > 0) ||
+    (Array.isArray(detail?.synopsis?.paragraphs) && detail.synopsis.paragraphs.length > 0);
+
+  if (hasRichFields) return detail;
+
+  const title = String(detail?.title || '').trim();
+  if (!title) return detail;
+
+  try {
+    const response = await axios.get('https://api.jikan.moe/v4/anime', {
+      params: {
+        q: title,
+        limit: 1
+      },
+      timeout: 12000,
+      validateStatus: () => true
+    });
+
+    if (response.status < 200 || response.status >= 300) return detail;
+
+    const item = Array.isArray(response.data?.data) ? response.data.data[0] : null;
+    if (!item) return detail;
+
+    const mappedGenres = Array.isArray(item.genres)
+      ? item.genres.map((g) => ({
+          title: g?.name || '',
+          genreId: String(g?.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
+          href: g?.name ? `/anime/genre/${String(g.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}` : '',
+          otakudesuUrl: ''
+        })).filter((g) => g.title)
+      : [];
+
+    return {
+      ...detail,
+      poster: detail.poster || item.images?.webp?.large_image_url || item.images?.jpg?.large_image_url || '',
+      japanese: detail.japanese || item.title_japanese || '',
+      score: detail.score || (item.score ? String(item.score) : ''),
+      producers: detail.producers || (Array.isArray(item.producers) ? item.producers.map((p) => p?.name).filter(Boolean).join(', ') : ''),
+      type: detail.type || item.type || '',
+      status: detail.status || item.status || '',
+      episodes: Number(detail.episodes) > 0 ? detail.episodes : (item.episodes || 0),
+      duration: detail.duration || item.duration || '',
+      aired: detail.aired || item.aired?.string || '',
+      studios: detail.studios || (Array.isArray(item.studios) ? item.studios.map((s) => s?.name).filter(Boolean).join(', ') : ''),
+      synopsis: {
+        paragraphs: (Array.isArray(detail?.synopsis?.paragraphs) && detail.synopsis.paragraphs.length > 0)
+          ? detail.synopsis.paragraphs
+          : (item.synopsis ? [item.synopsis] : []),
+        connections: Array.isArray(detail?.synopsis?.connections) ? detail.synopsis.connections : []
+      },
+      genreList: (Array.isArray(detail.genreList) && detail.genreList.length > 0) ? detail.genreList : mappedGenres
+    };
+  } catch (_) {
+    return detail;
+  }
+}
+
 function dedupeEpisodeList(episodeList = []) {
   if (!Array.isArray(episodeList)) return [];
   const seen = new Set();
@@ -990,7 +1053,11 @@ async function resolveAnimeDetailWithAlias(slug) {
   }
 
   if (bestSyntheticDetail) {
-    return bestSyntheticDetail;
+    const enrichedSyntheticDetail = await enrichSyntheticDetailWithJikan(bestSyntheticDetail.detail);
+    return {
+      ...bestSyntheticDetail,
+      detail: enrichedSyntheticDetail || bestSyntheticDetail.detail
+    };
   }
 
   const fallbackDetail = enrichAnimeDetailWithSnapshotEpisodes(primaryDetail || null, [originalSlug], primaryDetail?.title || '');
