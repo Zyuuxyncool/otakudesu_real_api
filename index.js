@@ -335,21 +335,31 @@ function withRetryEpisodeServerFallback(episodeData, episodeSlug) {
   const retryServerId = createRetryEpisodeServerId(episodeSlug);
   if (!retryServerId) return normalized;
 
+  const retryServer = {
+    title: 'auto-retry',
+    serverId: retryServerId,
+    href: `/anime/server/${retryServerId}`
+  };
+
   return {
     ...normalized,
     server: {
       ...(normalized.server || {}),
       qualities: [
         {
+          title: '720p',
+          quality: '720p',
+          serverList: [retryServer]
+        },
+        {
+          title: '480p',
+          quality: '480p',
+          serverList: [retryServer]
+        },
+        {
           title: 'Auto',
           quality: 'Auto',
-          serverList: [
-            {
-              title: 'auto-retry',
-              serverId: retryServerId,
-              href: `/anime/server/${retryServerId}`
-            }
-          ]
+          serverList: [retryServer]
         }
       ]
     }
@@ -1882,7 +1892,8 @@ async function resolveServerStream(serverId, options = {}) {
     const resolveFromEpisodeData = async (episodeData) => {
       if (!episodeData) return null;
 
-      const directEmbed = getBestEmbedUrlFromEpisodeData(episodeData);
+      const requestedQuality = String(options?.quality || '').trim();
+      const directEmbed = getBestEmbedUrlFromEpisodeData(episodeData, requestedQuality);
       if (directEmbed) {
         return {
           serverId,
@@ -2001,15 +2012,16 @@ app.get('/anime/server/:serverId', async (req, res) => {
     const quality = String(req.query.quality || requestMeta.quality || '').trim();
     const host = String(req.query.host || '').trim();
     const episodeSlug = String(req.query.episode || '').trim();
-    const streamUrl = await resolveServerStream(serverId, { episodeSlug });
+    const streamUrl = await resolveServerStream(serverId, { episodeSlug, quality, host });
 
     const streamSource = String(streamUrl?.source || '');
 
-    // Force fallback for classic servers when quality match is uncertain,
+    // Force fallback for classic/retry-episode servers when quality match is uncertain,
     // especially when current stream comes from snapshot-derived source.
     const shouldForceQualityFallback =
-      requestMeta.type === 'classic'
+      (requestMeta.type === 'classic' || requestMeta.type === 'retry-episode')
       && Boolean(quality)
+      && quality.toLowerCase() !== 'auto'
       && (
         !streamSource.includes('quality-match')
         && !streamSource.includes('quality-derived')
