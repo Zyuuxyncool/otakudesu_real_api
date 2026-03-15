@@ -679,7 +679,7 @@ function pushSearchCandidate(pool, item = {}) {
   });
 }
 
-function getSnapshotSearchResults(query) {
+function collectSnapshotSearchPool() {
   const pool = new Map();
 
   const unlimitedSnapshot = getSnapshotResponse('unlimited');
@@ -711,6 +711,12 @@ function getSnapshotSearchResults(query) {
       otakudesuUrl: detail.otakudesuUrl || ''
     });
   }
+
+  return pool;
+}
+
+function getSnapshotSearchResults(query) {
+  const pool = collectSnapshotSearchPool();
 
   return [...pool.values()]
     .map((item) => ({ item, score: scoreSearchMatch(query, item) }))
@@ -867,6 +873,16 @@ async function resolveAnimeDetailWithAlias(slug) {
     return { detail: primarySnapshotDetail, resolvedSlug: originalSlug, aliasUsed: false };
   }
 
+  // If direct snapshot detail is missing, still keep same anime identity when available in snapshot search pool.
+  const snapshotPool = collectSnapshotSearchPool();
+  if (snapshotPool.has(originalSlug)) {
+    const exactCandidate = snapshotPool.get(originalSlug);
+    const syntheticDetail = createSyntheticDetailFromCandidate(exactCandidate, originalSlug);
+    if (syntheticDetail) {
+      return { detail: syntheticDetail, resolvedSlug: originalSlug, aliasUsed: false };
+    }
+  }
+
   const query = originalSlug
     .replace(/-subtitle-indonesia|-sub-indo/gi, '')
     .replace(/[-_]+/g, ' ')
@@ -892,27 +908,53 @@ async function resolveAnimeDetailWithAlias(slug) {
     return { detail: primaryDetail || null, resolvedSlug: originalSlug, aliasUsed: false };
   }
 
-  const slugTokens = new Set(query.toLowerCase().split(' ').filter(Boolean));
+  const stopTokens = new Set(['sub', 'indo', 'subtitle', 'indonesia', 'season', 'episode', 'on', 'going']);
+  const significantTokens = query
+    .toLowerCase()
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token && token.length > 2 && !stopTokens.has(token));
+
   const scoreCandidate = (candidate) => {
     const id = String(candidate?.animeId || '').toLowerCase();
     const title = String(candidate?.title || '').toLowerCase();
     let score = 0;
-    for (const token of slugTokens) {
+    let matchedTokenCount = 0;
+    for (const token of significantTokens) {
+      let matched = false;
       if (id.includes(token)) score += 2;
+      if (id.includes(token)) matched = true;
       if (title.includes(token)) score += 1;
+      if (title.includes(token)) matched = true;
+      if (matched) matchedTokenCount += 1;
     }
-    return score;
+
+    return {
+      score,
+      matchedTokenCount,
+      isExactSlug: id === originalSlug.toLowerCase(),
+    };
   };
 
   const ranked = [...candidates]
-    .map((c) => ({ c, score: scoreCandidate(c) }))
-    .sort((a, b) => b.score - a.score);
+    .map((c) => ({ c, ...scoreCandidate(c) }))
+    .sort((a, b) => {
+      if (a.isExactSlug !== b.isExactSlug) return a.isExactSlug ? -1 : 1;
+      if (a.matchedTokenCount !== b.matchedTokenCount) return b.matchedTokenCount - a.matchedTokenCount;
+      return b.score - a.score;
+    });
 
   let bestSyntheticDetail = null;
+  const minRequiredTokenMatches = significantTokens.length >= 2 ? 2 : (significantTokens.length === 1 ? 1 : 0);
 
-  for (const { c, score } of ranked.slice(0, 5)) {
+  for (const { c, score, matchedTokenCount, isExactSlug } of ranked.slice(0, 5)) {
     const candidateSlug = String(c?.animeId || '').trim();
     if (!candidateSlug) continue;
+
+    // Prevent drifting to unrelated anime when only one generic token matches (e.g., just "kizoku").
+    if (!isExactSlug && matchedTokenCount < minRequiredTokenMatches) {
+      continue;
+    }
 
     if (!bestSyntheticDetail && score > 0) {
       const syntheticDetail = createSyntheticDetailFromCandidate(c, candidateSlug);
