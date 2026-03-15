@@ -640,6 +640,86 @@ function normalizeTitleForCompare(title = '') {
     .trim();
 }
 
+function scoreSearchMatch(query, candidate = {}) {
+  const normalizedQuery = normalizeTitleForCompare(query);
+  const normalizedTitle = normalizeTitleForCompare(candidate?.title || '');
+  const normalizedSlug = normalizeTitleForCompare(candidate?.animeId || candidate?.slug || '');
+
+  if (!normalizedQuery || (!normalizedTitle && !normalizedSlug)) return 0;
+  if (normalizedTitle === normalizedQuery || normalizedSlug === normalizedQuery) return 100;
+
+  let score = 0;
+  const tokens = normalizedQuery.split(' ').filter(Boolean);
+  for (const token of tokens) {
+    if (normalizedTitle.includes(token)) score += 4;
+    if (normalizedSlug.includes(token)) score += 3;
+  }
+
+  if (normalizedTitle.includes(normalizedQuery)) score += 20;
+  if (normalizedSlug.includes(normalizedQuery)) score += 15;
+
+  return score;
+}
+
+function pushSearchCandidate(pool, item = {}) {
+  const animeId = String(item?.animeId || item?.slug || '').trim();
+  const title = String(item?.title || '').trim();
+  if (!animeId || !title) return;
+  if (pool.has(animeId)) return;
+
+  pool.set(animeId, {
+    title,
+    poster: item?.poster || item?.image || item?.thumbnail || '',
+    status: item?.status || item?.releaseDay || '',
+    score: item?.score || '',
+    animeId,
+    href: item?.href || `/anime/anime/${animeId}`,
+    otakudesuUrl: item?.otakudesuUrl || '',
+    genreList: Array.isArray(item?.genreList) ? item.genreList : []
+  });
+}
+
+function getSnapshotSearchResults(query) {
+  const pool = new Map();
+
+  const unlimitedSnapshot = getSnapshotResponse('unlimited');
+  const unlimitedList = unlimitedSnapshot?.data?.animeList || [];
+  for (const item of unlimitedList) {
+    pushSearchCandidate(pool, item);
+  }
+
+  const animeListSnapshot = getSnapshotResponse('anime-list-grouped');
+  const groupedList = animeListSnapshot?.data?.list || [];
+  for (const group of groupedList) {
+    for (const item of group?.animeList || []) {
+      pushSearchCandidate(pool, item);
+    }
+  }
+
+  for (const [key, payload] of Object.entries(snapshotStore.data || {})) {
+    if (!key.startsWith('anime-detail-')) continue;
+    const detail = payload?.data?.detail || payload?.data || null;
+    if (!detail || typeof detail !== 'object') continue;
+
+    pushSearchCandidate(pool, {
+      title: detail.title,
+      poster: detail.poster,
+      status: detail.status,
+      score: detail.score,
+      animeId: key.replace(/^anime-detail-/, ''),
+      genreList: detail.genreList,
+      otakudesuUrl: detail.otakudesuUrl || ''
+    });
+  }
+
+  return [...pool.values()]
+    .map((item) => ({ item, score: scoreSearchMatch(query, item) }))
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 20)
+    .map((entry) => entry.item);
+}
+
 function dedupeEpisodeList(episodeList = []) {
   if (!Array.isArray(episodeList)) return [];
   const seen = new Set();
@@ -1228,7 +1308,11 @@ app.get('/anime/search/:keyword', async (req, res) => {
       });
     }
 
-    const results = await searchAnime(keyword);
+    let results = await searchAnime(keyword);
+    if (!hasItems(results)) {
+      results = getSnapshotSearchResults(keyword);
+    }
+
     res.json({
       status: 'success',
       creator: 'Lloyd.ID1112',
@@ -1243,6 +1327,23 @@ app.get('/anime/search/:keyword', async (req, res) => {
     });
   } catch (error) {
     console.error('Search error:', error.message);
+    const keyword = req.params.keyword;
+    const fallbackResults = getSnapshotSearchResults(keyword);
+    if (hasItems(fallbackResults)) {
+      return res.json({
+        status: 'success',
+        creator: 'Lloyd.ID1112',
+        statusCode: 200,
+        statusMessage: 'OK',
+        message: 'Served from bundled snapshot fallback',
+        ok: true,
+        data: {
+          animeList: fallbackResults
+        },
+        pagination: null
+      });
+    }
+
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',
