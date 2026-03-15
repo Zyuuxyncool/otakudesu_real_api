@@ -38,6 +38,9 @@ const EXTRA_ANIME_DETAIL_SLUGS = [
   'kizoku-tensei-subtitle-indonesia',
   'tensei-shi-slime-sub-indo',
   'tensei-slime-s2-sub-indo',
+  'mushoku-tensei-sub-indo',
+  'mushoku-ni-tensei-s2-sub-indo',
+  'mushoku-tensi-s2-sub-indo',
   ...(process.env.SNAPSHOT_EXTRA_ANIME_SLUGS || '')
     .split(',')
     .map((s) => s.trim())
@@ -210,7 +213,7 @@ async function buildAdditionalAnimeDetailSnapshots(snapshot, animeListGroupedRes
     }
   }
 
-  const listLimit = Number(process.env.SNAPSHOT_ANIME_DETAIL_LIMIT || 120);
+  const listLimit = Number(process.env.SNAPSHOT_ANIME_DETAIL_LIMIT || 800);
   const candidates = [
     ...EXTRA_ANIME_DETAIL_SLUGS,
     ...animeFromList.slice(0, listLimit)
