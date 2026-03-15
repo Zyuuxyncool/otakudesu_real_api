@@ -720,6 +720,39 @@ function getSnapshotSearchResults(query) {
     .map((entry) => entry.item);
 }
 
+function createSyntheticDetailFromCandidate(candidate, fallbackSlug = '') {
+  if (!candidate || typeof candidate !== 'object') return null;
+
+  const animeId = String(candidate?.animeId || candidate?.slug || fallbackSlug || '').trim();
+  const title = String(candidate?.title || '').trim();
+  if (!animeId || !title) return null;
+
+  return {
+    title,
+    poster: candidate?.poster || candidate?.image || candidate?.thumbnail || '',
+    japanese: '',
+    score: candidate?.score || '',
+    producers: '',
+    type: candidate?.type || '',
+    status: candidate?.status || '',
+    episodes: candidate?.episodes || 0,
+    duration: '',
+    aired: candidate?.aired || '',
+    studios: '',
+    batch: null,
+    synopsis: {
+      paragraphs: [],
+      connections: []
+    },
+    genreList: Array.isArray(candidate?.genreList) ? candidate.genreList : [],
+    episodeList: [],
+    recommendedAnimeList: [],
+    animeId,
+    href: candidate?.href || `/anime/anime/${animeId}`,
+    otakudesuUrl: candidate?.otakudesuUrl || ''
+  };
+}
+
 function dedupeEpisodeList(episodeList = []) {
   if (!Array.isArray(episodeList)) return [];
   const seen = new Set();
@@ -848,7 +881,11 @@ async function resolveAnimeDetailWithAlias(slug) {
   try {
     candidates = await searchAnime(query);
   } catch (_) {
-    return { detail: primaryDetail || null, resolvedSlug: originalSlug, aliasUsed: false };
+    candidates = [];
+  }
+
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    candidates = getSnapshotSearchResults(query);
   }
 
   if (!Array.isArray(candidates) || candidates.length === 0) {
@@ -871,9 +908,22 @@ async function resolveAnimeDetailWithAlias(slug) {
     .map((c) => ({ c, score: scoreCandidate(c) }))
     .sort((a, b) => b.score - a.score);
 
-  for (const { c } of ranked.slice(0, 5)) {
+  let bestSyntheticDetail = null;
+
+  for (const { c, score } of ranked.slice(0, 5)) {
     const candidateSlug = String(c?.animeId || '').trim();
     if (!candidateSlug) continue;
+
+    if (!bestSyntheticDetail && score > 0) {
+      const syntheticDetail = createSyntheticDetailFromCandidate(c, candidateSlug);
+      if (syntheticDetail) {
+        bestSyntheticDetail = {
+          detail: syntheticDetail,
+          resolvedSlug: candidateSlug,
+          aliasUsed: candidateSlug !== originalSlug
+        };
+      }
+    }
 
     const candidateSnapshot = getSnapshotResponse(`anime-detail-${candidateSlug}`);
     if (candidateSnapshot?.data?.detail) {
@@ -894,6 +944,10 @@ async function resolveAnimeDetailWithAlias(slug) {
     if (ok) {
       return { detail, resolvedSlug: candidateSlug, aliasUsed: candidateSlug !== originalSlug };
     }
+  }
+
+  if (bestSyntheticDetail) {
+    return bestSyntheticDetail;
   }
 
   const fallbackDetail = enrichAnimeDetailWithSnapshotEpisodes(primaryDetail || null, [originalSlug], primaryDetail?.title || '');
