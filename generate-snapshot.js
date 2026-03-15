@@ -10,7 +10,8 @@ const {
   getSchedule,
   getAnimeByGenre,
   getAnimeDetail,
-  getEpisodeDetail
+  getEpisodeDetail,
+  searchAnime
 } = require('./scraper-advanced');
 
 const SNAPSHOT_PATH = path.join(__dirname, 'snapshot.json');
@@ -33,13 +34,25 @@ const EXTRA_GENRE_SLUGS = [
 const EXTRA_ANIME_DETAIL_SLUGS = [
   'acca-13-ku-kansatsu-ka-sub-indo',
   'acca-13-kansatsu-subtitle-indonesia',
+  'eiyu-tenseisu-sub-indo',
+  'kizoku-tensei-subtitle-indonesia',
+  'tensei-shi-slime-sub-indo',
+  'tensei-slime-s2-sub-indo',
   ...(process.env.SNAPSHOT_EXTRA_ANIME_SLUGS || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
 ];
 
-  const SNAPSHOT_EPISODES_PER_ANIME = Number(process.env.SNAPSHOT_EPISODES_PER_ANIME || 999);
+const EXTRA_SEARCH_KEYWORDS = [
+  'tensei',
+  ...(process.env.SNAPSHOT_EXTRA_SEARCH_KEYWORDS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+];
+
+const SNAPSHOT_EPISODES_PER_ANIME = Number(process.env.SNAPSHOT_EPISODES_PER_ANIME || 999);
 
 function successEnvelope({ creator = 'Lloyd.ID1112', data, pagination = null }) {
   return {
@@ -221,6 +234,36 @@ async function buildAdditionalAnimeDetailSnapshots(snapshot, animeListGroupedRes
   }
 }
 
+async function buildSearchKeywordDetailSnapshots(snapshot) {
+  const keywords = [...new Set(EXTRA_SEARCH_KEYWORDS.filter(Boolean))];
+
+  for (const keyword of keywords) {
+    const searchResult = await safeRun(`search ${keyword}`, () => searchAnime(keyword));
+    if (!searchResult.ok || !Array.isArray(searchResult.result) || searchResult.result.length === 0) {
+      continue;
+    }
+
+    for (const anime of searchResult.result.slice(0, 25)) {
+      const animeSlug = anime?.animeId;
+      if (!animeSlug) continue;
+
+      const key = `anime-detail-${animeSlug}`;
+      if (snapshot.data[key]) continue;
+
+      const animeDetail = await safeRun(`anime detail search ${animeSlug}`, () => getAnimeDetail(animeSlug));
+      if (!animeDetail.ok || !hasAnimeDetail(animeDetail.result)) continue;
+
+      snapshot.data[key] = successEnvelope({
+        data: {
+          detail: animeDetail.result,
+          episodeList: Array.isArray(animeDetail.result.episodeList) ? animeDetail.result.episodeList : []
+        },
+        pagination: null
+      });
+    }
+  }
+}
+
 (async () => {
   const snapshot = {
     generatedAt: new Date().toISOString(),
@@ -293,6 +336,7 @@ async function buildAdditionalAnimeDetailSnapshots(snapshot, animeListGroupedRes
   }
 
   await buildAdditionalAnimeDetailSnapshots(snapshot, animeListGrouped.result);
+  await buildSearchKeywordDetailSnapshots(snapshot);
 
   await buildGenreSnapshots(snapshot, genres.result);
 
