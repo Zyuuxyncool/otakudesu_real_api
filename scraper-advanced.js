@@ -750,6 +750,19 @@ async function getAnimeDetail(slug) {
       });
     });
 
+    const batchAnchor = $('a[href*="/batch/"]').first();
+    const batchUrl = toAbsoluteUrl(batchAnchor.attr('href') || '');
+    const batchId = batchUrl.split('/batch/')[1]?.split('/')[0]?.trim() || '';
+
+    const batch = batchId
+      ? {
+          title: 'Batch Download',
+          batchId,
+          href: `/anime/batch/${batchId}`,
+          otakudesuUrl: batchUrl
+        }
+      : null;
+
     return {
       title,
       poster,
@@ -762,7 +775,7 @@ async function getAnimeDetail(slug) {
       duration: infoMap['durasi'] || infoMap['duration'] || '',
       aired: infoMap['tanggal rilis'] || infoMap['aired'] || '',
       studios: infoMap['studio'] || infoMap['studios'] || '',
-      batch: null,
+      batch,
       synopsis: {
         paragraphs: synopsisParagraphs,
         connections: synopsisConnections
@@ -961,7 +974,25 @@ async function getEpisodeDetail(episodeSlug) {
   try {
     const { html } = await fetchPathWithFallback(
       `/episode/${episodeSlug}/`,
-      (body) => body.includes('mirrorstream') || body.includes('lightsVideo') || body.includes('/episode/')
+      (body) => {
+        const normalized = String(body || '').toLowerCase();
+        const hasPrimaryStreamMarkers =
+          normalized.includes('mirrorstream')
+          || normalized.includes('lightsvideo')
+          || normalized.includes('responsive-embed-stream')
+          || normalized.includes('data-content=');
+
+        const hasEpisodeStructure =
+          normalized.includes('/episode/')
+          && (
+            normalized.includes('div class="download"')
+            || normalized.includes('infozingle')
+            || normalized.includes('keyingpost')
+          );
+
+        // Reject thin/placeholder pages so fetchPathWithFallback can try the next domain.
+        return hasPrimaryStreamMarkers || hasEpisodeStructure;
+      }
     );
     const $ = cheerio.load(html);
 
