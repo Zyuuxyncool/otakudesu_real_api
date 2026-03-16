@@ -25,14 +25,91 @@ const PORT = 3000;
 const SCRAPER_BACKEND_URL = (process.env.SCRAPER_BACKEND_URL || '').replace(/\/$/, '');
 const ENABLE_PROXY_BACKEND = String(process.env.ENABLE_PROXY_BACKEND || 'false').toLowerCase() === 'true';
 const SNAPSHOT_PATH = process.env.SNAPSHOT_PATH || path.join(__dirname, 'snapshot.json');
+const SNAPSHOT_MANIFEST_PATH = process.env.SNAPSHOT_MANIFEST_PATH || path.join(__dirname, 'snapshot-manifest.json');
+const RUNTIME_SNAPSHOT_WRITE = String(process.env.RUNTIME_SNAPSHOT_WRITE || 'false').toLowerCase() === 'true';
 const FORCE_SNAPSHOT_MODE = String(process.env.FORCE_SNAPSHOT_MODE || 'false').toLowerCase() === 'true';
 
 let snapshotStore = {
   generatedAt: null,
-  data: {}
+  data: {},
+  manifest: {
+    keyMap: {},
+    chunks: []
+  },
+  chunkCache: {}
 };
 
+function toAbsoluteSnapshotPath(relativeOrAbsolutePath = '') {
+  if (!relativeOrAbsolutePath) return '';
+  if (path.isAbsolute(relativeOrAbsolutePath)) return relativeOrAbsolutePath;
+  return path.join(__dirname, relativeOrAbsolutePath.replace(/^\.?[\\/]/, ''));
+}
+
+function loadChunkData(chunkFilePath = '') {
+  const relativePath = String(chunkFilePath || '').trim();
+  if (!relativePath) return null;
+
+  if (snapshotStore.chunkCache[relativePath]) {
+    return snapshotStore.chunkCache[relativePath];
+  }
+
+  const absolutePath = toAbsoluteSnapshotPath(relativePath);
+  if (!absolutePath || !fs.existsSync(absolutePath)) return null;
+
+  try {
+    const raw = fs.readFileSync(absolutePath, 'utf8');
+    if (!raw?.trim()) return null;
+    const parsed = JSON.parse(raw);
+    const data = parsed?.data && typeof parsed.data === 'object' ? parsed.data : {};
+    snapshotStore.chunkCache[relativePath] = data;
+    return data;
+  } catch (error) {
+    console.error(`Snapshot chunk load error (${relativePath}):`, error.message);
+    return null;
+  }
+}
+
+function loadSnapshotManifest() {
+  try {
+    if (!fs.existsSync(SNAPSHOT_MANIFEST_PATH)) return;
+    const raw = fs.readFileSync(SNAPSHOT_MANIFEST_PATH, 'utf8');
+    if (!raw?.trim()) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+
+    snapshotStore.generatedAt = parsed.generatedAt || snapshotStore.generatedAt;
+    snapshotStore.manifest = {
+      keyMap: parsed.keyMap && typeof parsed.keyMap === 'object' ? parsed.keyMap : {},
+      chunks: Array.isArray(parsed.chunks) ? parsed.chunks : []
+    };
+  } catch (error) {
+    console.error('Snapshot manifest load error:', error.message);
+  }
+}
+
+function getAllSnapshotKeys() {
+  const inMemoryKeys = Object.keys(snapshotStore.data || {});
+  const manifestKeys = Object.keys(snapshotStore.manifest?.keyMap || {});
+  return [...new Set([...inMemoryKeys, ...manifestKeys])];
+}
+
+function getSnapshotEntriesByPrefix(prefix = '') {
+  const needle = String(prefix || '');
+  const keys = getAllSnapshotKeys();
+  const entries = [];
+
+  for (const key of keys) {
+    if (needle && !String(key).startsWith(needle)) continue;
+    const value = getSnapshot(key);
+    if (value) entries.push([key, value]);
+  }
+
+  return entries;
+}
+
 function loadSnapshotFromFile() {
+  loadSnapshotManifest();
+
   try {
     if (!fs.existsSync(SNAPSHOT_PATH)) return;
     const raw = fs.readFileSync(SNAPSHOT_PATH, 'utf8');
@@ -40,8 +117,9 @@ function loadSnapshotFromFile() {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object') {
       snapshotStore = {
-        generatedAt: parsed.generatedAt || null,
-        data: parsed.data && typeof parsed.data === 'object' ? parsed.data : {}
+        ...snapshotStore,
+        generatedAt: parsed.generatedAt || snapshotStore.generatedAt || null,
+        data: parsed.data && typeof parsed.data === 'object' ? parsed.data : (snapshotStore.data || {})
       };
     }
   } catch (error) {
@@ -50,6 +128,10 @@ function loadSnapshotFromFile() {
 }
 
 function persistSnapshotToFile() {
+  if (snapshotStore.manifest?.keyMap && Object.keys(snapshotStore.manifest.keyMap).length > 0 && !RUNTIME_SNAPSHOT_WRITE) {
+    return;
+  }
+
   try {
     const payload = {
       generatedAt: snapshotStore.generatedAt || new Date().toISOString(),
@@ -62,6 +144,12 @@ function persistSnapshotToFile() {
 }
 
 function getSnapshot(key) {
+  const chunkFile = snapshotStore.manifest?.keyMap?.[key];
+  if (chunkFile) {
+    const chunkData = loadChunkData(chunkFile);
+    if (chunkData?.[key]) return chunkData[key];
+  }
+
   return snapshotStore.data?.[key] || null;
 }
 
@@ -74,6 +162,12 @@ function saveSnapshot(key, value) {
 
 function hasItems(arr) {
   return Array.isArray(arr) && arr.length > 0;
+}
+
+function hasBatchSnapshotData(batchData) {
+  if (!batchData || typeof batchData !== 'object') return false;
+  const formats = batchData?.downloadUrl?.formats;
+  return Array.isArray(formats) && formats.some((format) => Array.isArray(format?.qualities) && format.qualities.length > 0);
 }
 
 function hasEpisodeStreamData(episodeData) {
@@ -592,10 +686,8 @@ function findServerFallbackFromSnapshot(serverId, options = {}) {
     return embeddableAny || '';
   };
 
-  const entries = Object.entries(snapshotStore.data || {});
+  const entries = getSnapshotEntriesByPrefix('episode-');
   for (const [key, payload] of entries) {
-    if (!key.startsWith('episode-')) continue;
-
     const episodeData = payload?.data;
     const qualities = episodeData?.server?.qualities;
     if (!Array.isArray(qualities)) continue;
@@ -718,8 +810,7 @@ function collectSnapshotSearchPool() {
     }
   }
 
-  for (const [key, payload] of Object.entries(snapshotStore.data || {})) {
-    if (!key.startsWith('anime-detail-')) continue;
+  for (const [key, payload] of getSnapshotEntriesByPrefix('anime-detail-')) {
     const detail = payload?.data?.detail || payload?.data || null;
     if (!detail || typeof detail !== 'object') continue;
 
@@ -904,10 +995,8 @@ function enrichAnimeDetailWithSnapshotEpisodes(detail, candidateSlugs = [], titl
   const normalizedTitle = normalizeTitleForCompare(titleHint || detail.title || '');
   if (!normalizedTitle) return detail;
 
-  const entries = Object.entries(snapshotStore.data || {});
+  const entries = getSnapshotEntriesByPrefix('anime-detail-');
   for (const [key, payload] of entries) {
-    if (!key.startsWith('anime-detail-')) continue;
-
     const snapData = payload?.data;
     const snapDetail = snapData?.detail || snapData;
     const snapEpisodes = dedupeEpisodeList(
@@ -1247,7 +1336,7 @@ app.get('/anime/ongoing-anime', async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const cacheKey = `ongoing-anime-page${page}`;
 
-    if (FORCE_SNAPSHOT_MODE && page === 1) {
+    if (FORCE_SNAPSHOT_MODE) {
       const snapshotData = getSnapshotResponse(cacheKey);
       if (snapshotData) return res.json(snapshotData);
     }
@@ -1270,25 +1359,23 @@ app.get('/anime/ongoing-anime', async (req, res) => {
       pagination: result.pagination
     };
 
-    // If source blocked in production and list empty, fallback to bundled snapshot page 1
-    if (page === 1 && !hasItems(result.animeList)) {
+    // If source blocked in production and list empty, fallback to bundled snapshot for requested page
+    if (!hasItems(result.animeList)) {
       const snapshotData = getSnapshotResponse(cacheKey);
       if (snapshotData) return res.json(snapshotData);
     }
     
     if (!cache['ongoing-anime'][cacheKey]) cache['ongoing-anime'][cacheKey] = {};
     cache['ongoing-anime'][cacheKey] = { data: response, time: Date.now() };
-    if (page === 1 && hasItems(result.animeList)) {
+    if (hasItems(result.animeList)) {
       saveSnapshot(cacheKey, response);
     }
     res.json(response);
   } catch (error) {
     console.error('Ongoing error:', error.message);
     const page = parseInt(req.query.page) || 1;
-    if (page === 1) {
-      const snapshotData = getSnapshotResponse('ongoing-anime-page1');
-      if (snapshotData) return res.json(snapshotData);
-    }
+    const snapshotData = getSnapshotResponse(`ongoing-anime-page${page}`) || (page !== 1 ? getSnapshotResponse('ongoing-anime-page1') : null);
+    if (snapshotData) return res.json(snapshotData);
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',
@@ -1310,7 +1397,7 @@ const handleCompleteAnime = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const cacheKey = `complete-anime-page${page}`;
 
-    if (FORCE_SNAPSHOT_MODE && page === 1) {
+    if (FORCE_SNAPSHOT_MODE) {
       const snapshotData = getSnapshotResponse(cacheKey);
       if (snapshotData) return res.json(snapshotData);
     }
@@ -1333,24 +1420,22 @@ const handleCompleteAnime = async (req, res) => {
       pagination: result.pagination
     };
 
-    if (page === 1 && !hasItems(result.animeList)) {
+    if (!hasItems(result.animeList)) {
       const snapshotData = getSnapshotResponse(cacheKey);
       if (snapshotData) return res.json(snapshotData);
     }
     
     if (!cache['complete-anime'][cacheKey]) cache['complete-anime'][cacheKey] = {};
     cache['complete-anime'][cacheKey] = { data: response, time: Date.now() };
-    if (page === 1 && hasItems(result.animeList)) {
+    if (hasItems(result.animeList)) {
       saveSnapshot(cacheKey, response);
     }
     res.json(response);
   } catch (error) {
     console.error('Complete error:', error.message);
     const page = parseInt(req.query.page) || 1;
-    if (page === 1) {
-      const snapshotData = getSnapshotResponse('complete-anime-page1');
-      if (snapshotData) return res.json(snapshotData);
-    }
+    const snapshotData = getSnapshotResponse(`complete-anime-page${page}`) || (page !== 1 ? getSnapshotResponse('complete-anime-page1') : null);
+    if (snapshotData) return res.json(snapshotData);
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',
@@ -1417,7 +1502,7 @@ app.get('/anime/genre/:slug', async (req, res) => {
     const slug = req.params.slug;
     const cacheKey = `genre-${slug}-page${page}`;
 
-    if (FORCE_SNAPSHOT_MODE && page === 1) {
+    if (FORCE_SNAPSHOT_MODE) {
       const snapshotData = getSnapshotResponse(cacheKey);
       if (snapshotData) return res.json(snapshotData);
     }
@@ -1440,14 +1525,14 @@ app.get('/anime/genre/:slug', async (req, res) => {
       pagination: result.pagination
     };
 
-    if (page === 1 && !hasItems(result.animeList)) {
+    if (!hasItems(result.animeList)) {
       const snapshotData = getSnapshotResponse(cacheKey);
       if (snapshotData) return res.json(snapshotData);
     }
     
     if (!cache.genre[cacheKey]) cache.genre[cacheKey] = {};
     cache.genre[cacheKey] = { data: response, time: Date.now() };
-    if (page === 1 && hasItems(result.animeList)) {
+    if (hasItems(result.animeList)) {
       saveSnapshot(cacheKey, response);
     }
     res.json(response);
@@ -1455,10 +1540,8 @@ app.get('/anime/genre/:slug', async (req, res) => {
     console.error('Genre detail error:', error.message);
     const page = parseInt(req.query.page) || 1;
     const slug = req.params.slug;
-    if (page === 1) {
-      const snapshotData = getSnapshotResponse(`genre-${slug}-page1`);
-      if (snapshotData) return res.json(snapshotData);
-    }
+    const snapshotData = getSnapshotResponse(`genre-${slug}-page${page}`) || (page !== 1 ? getSnapshotResponse(`genre-${slug}-page1`) : null);
+    if (snapshotData) return res.json(snapshotData);
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',
@@ -1827,19 +1910,72 @@ app.get('/anime/episode/:slug', async (req, res) => {
 // Batch download - Link download batch
 app.get('/anime/batch/:slug', async (req, res) => {
   try {
-    const batchData = await getBatchLinks(req.params.slug);
-    res.json({
+    const slug = String(req.params.slug || '').trim();
+    const snapshotKey = `batch-${slug}`;
+
+    if (FORCE_SNAPSHOT_MODE) {
+      const snapshotData = getSnapshotResponse(snapshotKey);
+      if (snapshotData) return res.json(snapshotData);
+    }
+
+    const detailRaw = await getAnimeDetail(slug);
+    const detailBatchId = String(detailRaw?.batch?.batchId || '').trim();
+    const batchSlugCandidates = [...new Set([detailBatchId, slug].filter(Boolean))];
+
+    let batchData = null;
+    for (const batchSlug of batchSlugCandidates) {
+      const result = await getBatchLinks(batchSlug);
+      if (hasBatchSnapshotData(result)) {
+        batchData = result;
+        break;
+      }
+    }
+
+    if (!hasBatchSnapshotData(batchData)) {
+      const snapshotData = getSnapshotResponse(snapshotKey);
+      if (snapshotData) return res.json(snapshotData);
+    }
+
+    const response = {
       status: 'success',
       creator: 'Lloyd.ID1112',
       statusCode: 200,
       statusMessage: 'OK',
       message: '',
       ok: true,
-      data: batchData,
+      data: batchData || {
+        title: '',
+        animeId: slug,
+        poster: '',
+        japanese: '',
+        type: '',
+        score: '',
+        episodes: 0,
+        duration: '',
+        studios: '',
+        producers: '',
+        aired: '',
+        credit: '',
+        genreList: [],
+        downloadUrl: {
+          formats: []
+        }
+      },
       pagination: null
+    };
+
+    if (hasBatchSnapshotData(batchData)) {
+      saveSnapshot(snapshotKey, response);
+    }
+
+    res.json({
+      ...response
     });
   } catch (error) {
     console.error('Batch error:', error.message);
+    const slug = String(req.params.slug || '').trim();
+    const snapshotData = getSnapshotResponse(`batch-${slug}`);
+    if (snapshotData) return res.json(snapshotData);
     res.status(500).json({
       status: 'error',
       creator: 'Lloyd.ID1112',

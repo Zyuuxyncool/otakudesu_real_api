@@ -1,0 +1,277 @@
+{
+  "generatedAt": "2026-03-16T07:57:30.675Z",
+  "feature": "ongoing",
+  "chunkIndex": 1,
+  "data": {
+    "ongoing-anime-page1": {
+      "status": "success",
+      "creator": "Lloyd.ID1112",
+      "statusCode": 200,
+      "statusMessage": "OK",
+      "message": "",
+      "ok": true,
+      "data": {
+        "animeList": [
+          {
+            "title": "Seihantai na Kimi to Boku",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/Seihantai-na-Kimi-to-Boku.jpg",
+            "episodes": 10,
+            "releaseDay": "Senin",
+            "latestReleaseDate": "16 Mar",
+            "animeId": "seihantai-kimi-boku-sub-indo",
+            "href": "/anime/anime/seihantai-kimi-boku-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/seihantai-kimi-boku-sub-indo/"
+          },
+          {
+            "title": "Goumon Baito-kun no Nichijou",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/153380.jpg",
+            "episodes": 11,
+            "releaseDay": "Senin",
+            "latestReleaseDate": "16 Mar",
+            "animeId": "goumon-baito-sub-indo",
+            "href": "/anime/anime/goumon-baito-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/goumon-baito-sub-indo/"
+          },
+          {
+            "title": "Ikoku Nikki",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/Ikoku-Nikki-Sub.jpg",
+            "episodes": 11,
+            "releaseDay": "Minggu",
+            "latestReleaseDate": "16 Mar",
+            "animeId": "ikoku-nikki-sub-indo",
+            "href": "/anime/anime/ikoku-nikki-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/ikoku-nikki-sub-indo/"
+          },
+          {
+            "title": "Kizoku Tensei",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/153722.jpg",
+            "episodes": 11,
+            "releaseDay": "Minggu",
+            "latestReleaseDate": "16 Mar",
+            "animeId": "kizoku-tensei-subtitle-indonesia",
+            "href": "/anime/anime/kizoku-tensei-subtitle-indonesia",
+            "otakudesuUrl": "https://otakudesu.blog/anime/kizoku-tensei-subtitle-indonesia/"
+          },
+          {
+            "title": "Toujima Tanzaburou wa Kamen Rider ni Naritai",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2025/10/Toujima-Tanzaburou-wa-Kamen-Rider-ni-Naritai-Sub-Indo.jpg",
+            "episodes": 23,
+            "releaseDay": "Selasa",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "toujima-tanzaburou-wa-kamen-rider-ni-naritai-sub-indo",
+            "href": "/anime/anime/toujima-tanzaburou-wa-kamen-rider-ni-naritai-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/toujima-tanzaburou-wa-kamen-rider-ni-naritai-sub-indo/"
+          },
+          {
+            "title": "Jigokuraku Season 2",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/154456.jpg",
+            "episodes": 10,
+            "releaseDay": "Minggu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "jigokuku-s2-sub-indo",
+            "href": "/anime/anime/jigokuku-s2-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/jigokuku-s2-sub-indo/"
+          },
+          {
+            "title": "Hanazakari no Kimitachi e",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/152041.jpg",
+            "episodes": 12,
+            "releaseDay": "Minggu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "hanazakari-kimitachi-sub-indo",
+            "href": "/anime/anime/hanazakari-kimitachi-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/hanazakari-kimitachi-sub-indo/"
+          },
+          {
+            "title": "Majutsushi Kunon wa Mieteiru",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/154459.jpg",
+            "episodes": 12,
+            "releaseDay": "Minggu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "majutsushi-kunon-mieteiru-sub-indo",
+            "href": "/anime/anime/majutsushi-kunon-mieteiru-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/majutsushi-kunon-mieteiru-sub-indo/"
+          },
+          {
+            "title": "Kaya-chan wa Kowakunai",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/153705.jpg",
+            "episodes": 10,
+            "releaseDay": "Minggu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "kaya-chan-kowakunai-sub-indo",
+            "href": "/anime/anime/kaya-chan-kowakunai-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/kaya-chan-kowakunai-sub-indo/"
+          },
+          {
+            "title": "Niwatori Fighter",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/03/150983.jpg",
+            "episodes": 1,
+            "releaseDay": "Random",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "niwatori-fight-sub-indo",
+            "href": "/anime/anime/niwatori-fight-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/niwatori-fight-sub-indo/"
+          },
+          {
+            "title": "Uruwashi no Yoi no Tsuki",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/Uruwashi-no-Yoi-no-Tsuki.jpg",
+            "episodes": 10,
+            "releaseDay": "Minggu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "uruwashi-yoi-tsuki-sub-indo",
+            "href": "/anime/anime/uruwashi-yoi-tsuki-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/uruwashi-yoi-tsuki-sub-indo/"
+          },
+          {
+            "title": "SI-VIS: The Sound of Heroes",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2025/10/151178.jpg",
+            "episodes": 22,
+            "releaseDay": "Minggu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "si-vis-sub-indo",
+            "href": "/anime/anime/si-vis-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/si-vis-sub-indo/"
+          },
+          {
+            "title": "Medalist Season 2",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/medalist-2nd-season-ce42515a919d92779c8ab76111b8085d.jpg",
+            "episodes": 8,
+            "releaseDay": "Minggu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "medalist-s2-sub-indo",
+            "href": "/anime/anime/medalist-s2-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/medalist-s2-sub-indo/"
+          },
+          {
+            "title": "Digimon Beatbreak",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2025/10/Digimon-Beatbreak.jpg",
+            "episodes": 22,
+            "releaseDay": "Minggu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "digimon-bb-sub-indo",
+            "href": "/anime/anime/digimon-bb-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/digimon-bb-sub-indo/"
+          },
+          {
+            "title": "Yuusha no Kuzu",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/Yuusha-no-Kuzu.jpg",
+            "episodes": 10,
+            "releaseDay": "Sabtu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "yuusha-kuzu-sub-indo",
+            "href": "/anime/anime/yuusha-kuzu-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/yuusha-kuzu-sub-indo/"
+          },
+          {
+            "title": "Fumetsu no Anata e Season 3",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2025/10/Fumetsu-no-Anata-e-Season-2-Sub.jpg",
+            "episodes": 19,
+            "releaseDay": "Minggu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "fna-s3-sub-indo",
+            "href": "/anime/anime/fna-s3-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/fna-s3-sub-indo/"
+          },
+          {
+            "title": "Fate/strange Fake",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2024/12/132201-1.jpg",
+            "episodes": 11,
+            "releaseDay": "Minggu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "fate-fake-whisper-sub-indo",
+            "href": "/anime/anime/fate-fake-whisper-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/fate-fake-whisper-sub-indo/"
+          },
+          {
+            "title": "Dead Account",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/154192.jpg",
+            "episodes": 10,
+            "releaseDay": "Sabtu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "dead-account-sub-indo",
+            "href": "/anime/anime/dead-account-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/dead-account-sub-indo/"
+          },
+          {
+            "title": "Trigun Stargaze",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/154541.jpg",
+            "episodes": 10,
+            "releaseDay": "Sabtu",
+            "latestReleaseDate": "15 Mar",
+            "animeId": "trigun-stargaze-sub-indo",
+            "href": "/anime/anime/trigun-stargaze-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/trigun-stargaze-sub-indo/"
+          },
+          {
+            "title": "Jingai Kyoushitsu no Ningengirai Kyoushi",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/154934.jpg",
+            "episodes": 10,
+            "releaseDay": "Sabtu",
+            "latestReleaseDate": "14 Mar",
+            "animeId": "jingai-kyoushitsu-ningengirai-kyoushi-sub-indo",
+            "href": "/anime/anime/jingai-kyoushitsu-ningengirai-kyoushi-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/jingai-kyoushitsu-ningengirai-kyoushi-sub-indo/"
+          },
+          {
+            "title": "Tensei shitara Dragon no Tamago datta",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/Tensei-shitara-Dragon-no-Tamago-datta.jpg",
+            "episodes": 10,
+            "releaseDay": "Sabtu",
+            "latestReleaseDate": "14 Mar",
+            "animeId": "tensei-shitara-dragon-tamago-sub-indo",
+            "href": "/anime/anime/tensei-shitara-dragon-tamago-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/tensei-shitara-dragon-tamago-sub-indo/"
+          },
+          {
+            "title": "Enen no Shouboutai: San no Shou Part 2",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/152472.jpg",
+            "episodes": 10,
+            "releaseDay": "Sabtu",
+            "latestReleaseDate": "14 Mar",
+            "animeId": "enen-shouboutai-season-3-p2-sub-indo",
+            "href": "/anime/anime/enen-shouboutai-season-3-p2-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/enen-shouboutai-season-3-p2-sub-indo/"
+          },
+          {
+            "title": "Hell Mode",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/152479.jpg",
+            "episodes": 10,
+            "releaseDay": "Sabtu",
+            "latestReleaseDate": "14 Mar",
+            "animeId": "mode-hell-sub-indo",
+            "href": "/anime/anime/mode-hell-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/mode-hell-sub-indo/"
+          },
+          {
+            "title": "Dark Moon: Tsuki no Saidan",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/154695.jpg",
+            "episodes": 10,
+            "releaseDay": "Sabtu",
+            "latestReleaseDate": "14 Mar",
+            "animeId": "dark-moon-sub-indo",
+            "href": "/anime/anime/dark-moon-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/dark-moon-sub-indo/"
+          },
+          {
+            "title": "Sousou no Frieren Season 2",
+            "poster": "https://otakudesu.blog/wp-content/uploads/2026/01/154528.jpg",
+            "episodes": 8,
+            "releaseDay": "Jumat",
+            "latestReleaseDate": "13 Mar",
+            "animeId": "sousou-frieren-s2-sub-indo",
+            "href": "/anime/anime/sousou-frieren-s2-sub-indo",
+            "otakudesuUrl": "https://otakudesu.blog/anime/sousou-frieren-s2-sub-indo/"
+          }
+        ]
+      },
+      "pagination": {
+        "currentPage": 1,
+        "hasPrevPage": false,
+        "prevPage": null,
+        "hasNextPage": true,
+        "nextPage": 2,
+        "totalPages": 6
+      }
+    }
+  }
+}

@@ -22,3 +22,7 @@ Thumbs.db
 *.swp
 *.swo
 .vercel
+
+# Legacy monolithic snapshot
+snapshot.json
+snapshot.json.tmp
