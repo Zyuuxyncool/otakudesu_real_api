@@ -170,7 +170,7 @@ const otakudesuController = {
 
   async getHome(req: Request, res: Response, next: NextFunction) {
     try {
-      const ref = "https://google.com/";
+      const ref = "https://otakudesu.blog/";
       const document = await otakudesuScraper.scrapeDOM("/", ref);
       const home = otakudesuParser.parseHome(document);
       const payload = setPayload(res, {
