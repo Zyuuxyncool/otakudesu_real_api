@@ -15,8 +15,6 @@ concurrency:
 jobs:
   sync-snapshot:
     runs-on: ubuntu-latest
-    env:
-      VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -48,5 +46,17 @@ jobs:
           echo "has_changes=true" >> "$GITHUB_ENV"
 
       - name: Trigger Vercel deploy hook
-        if: env.has_changes == 'true' && env.VERCEL_DEPLOY_HOOK_URL != ''
-        run: curl -fsS -X POST "$VERCEL_DEPLOY_HOOK_URL"
+        env:
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          if [ "$has_changes" != "true" ]; then
+            echo "No snapshot changes, skipping deploy hook"
+            exit 0
+          fi
+
+          if [ -z "$VERCEL_DEPLOY_HOOK_URL" ]; then
+            echo "Deploy hook secret is not set, skipping deploy hook"
+            exit 0
+          fi
+
+          curl -fsS -X POST "$VERCEL_DEPLOY_HOOK_URL"
