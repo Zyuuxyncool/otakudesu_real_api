@@ -115,12 +115,41 @@ Alternatif tanpa VPS (mode snapshot):
 npm run snapshot:generate
 ```
 
+Snapshot generator sekarang membuat format terpecah:
+
+- `snapshot-manifest.json`
+- `snapshots/snapshot-<fitur>-<index>.json`
+
+Contoh: `snapshots/snapshot-episode-1.json`, `snapshots/snapshot-anime-detail-2.json`.
+
+Atur batas ukuran per file chunk (default sekitar 95 MB):
+
+```bash
+SNAPSHOT_MAX_CHUNK_BYTES=99614720
+```
+
+Runtime akan otomatis baca `snapshot-manifest.json` + file chunk. Untuk kompatibilitas lama, file `snapshot.json` tunggal tetap bisa dipakai jika ada.
+
 2. Deploy ke Vercel seperti biasa.
 3. (Opsional) paksa endpoint pakai snapshot dengan env berikut:
 
 FORCE_SNAPSHOT_MODE=true
 
 Dengan mode ini, endpoint seperti `/anime/unlimited`, `/anime/ongoing-anime?page=1`, dan `/anime/complete-anime?page=1` tetap non-empty walau scraping live kena blokir.
+
+### Auto Sync Snapshot (GitHub Actions)
+
+Repository ini sudah menyediakan workflow terjadwal di `.github/workflows/auto-snapshot-sync.yml` untuk:
+
+1. Menjalankan `npm run snapshot:generate` tiap 6 jam.
+2. Commit perubahan `snapshot-manifest.json`, `snapshots/*`, dan `snapshot.json` jika ada update data.
+3. Push ke branch aktif agar memicu redeploy otomatis (jika Vercel terhubung ke repo).
+
+Jalankan manual kapan saja dari tab Actions dengan workflow `Auto Snapshot Sync`.
+
+Opsional: jika ingin memicu deploy hook Vercel setelah snapshot berubah, tambahkan secret repo berikut:
+
+- `VERCEL_DEPLOY_HOOK_URL`
 
 ### Railway
 1. Push ke GitHub
