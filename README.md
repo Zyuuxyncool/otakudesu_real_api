@@ -1,189 +1,92 @@
-# 🎌 Otakudesu API
+# wajik-anime-api
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/Zyuuxyncool/otakudesu_real_api)
-[![Node](https://img.shields.io/badge/node-%3E%3D14.0.0-green.svg)](https://nodejs.org)
-[![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+REST API streaming dan download Anime subtitle Indonesia dari berbagai sumber
 
-Fast and stable REST API untuk scraping data anime dari [Otakudesu](https://otakudesu.best) menggunakan Node.js, Express, Axios, dan Cheerio.
+# Sumber:
 
-## ✨ Features
+API ini unofficial jadi ga ada kaitan dengan sumber yang tersedia...
 
-- ⚡ **Cepat & Stabil** - Menggunakan Axios + Cheerio (tanpa Playwright untuk performa optimal)
-- 🛡️ **Error Handling** - Fallback ke mock data jika scraping gagal
-- 🔄 **Auto Retry** - Request retry dengan timeout handling
-- 📦 **No Database** - Real-time scraping dari source
-- 🚀 **Easy Deploy** - Deploy ke Vercel, Railway, Heroku, atau VPS
-- 📖 **Complete API** - Semua endpoint yang dibutuhkan
+1. otakudesu: https://otakudesu.best
+2. kuramanime: https://v8.kuramanime.tel
 
-## 📦 Installation
+- domain sering berubah jangan lupa pantau terus untuk edit url ada di di "src/configs/{source}.config.ts"
 
-```bash
-# Clone repository
-git clone git@github.com:Zyuuxyncool/otakudesu_real_api.git
-cd api-otakudesu
+# Installasi App
 
-# Install dependencies
+- install NodeJS 20 || >=22
+- Jalankan perintah di terminal
+
+```sh
+# clone repo
+git clone https://github.com/wajik45/wajik-anime-api.git
+
+# masuk repo
+cd wajik-anime-api
+
+# install dependensi
 npm install
 
-# Jalankan server
+# menjalankan server mode development
+npm run dev
+```
+
+# Build App
+
+```sh
+# build
+npm run build
+
+# menjalankan server
 npm start
 ```
 
-Server akan berjalan di `http://localhost:3000`
+- Server akan berjalan di http://localhost:3001
 
-## 📚 API Endpoints
+# Routes
 
-### Base URL: `http://localhost:3000`
+| Endpoint  | Description                                                                                      |
+| --------- | ------------------------------------------------------------------------------------------------ |
+| /{sumber} | Deskripsi ada di response sesuai dengan sumber, gunakan ext JSON Parser jika menggunakan browser |
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/home` | GET | Anime terbaru yang diupdate |
-| `/api/ongoing?page=1` | GET | Anime ongoing (tayang) |
-| `/api/complete?page=1` | GET | Anime completed (tamat) |
-| `/api/search?q={query}` | GET | Cari anime |
-| `/api/anime/{slug}` | GET | Detail anime + episodes |
-| `/api/episode/{slug}` | GET | Link download episode |
-| `/api/batch?page=1` | GET | Batch downloads |
-| `/api/genres` | GET | Daftar semua genre |
-| `/api/schedule` | GET | Jadwal tayang |
-| `/api/trending` | GET | Anime trending |
+### Contoh request
 
-### Example Response
+```js
+(async () => {
+  const response = await fetch("http://localhost:3001/otakudesu/ongoing?page=1");
+  const result = await response.json();
 
-**GET /api/home**
-```json
-{
-  "success": true,
-  "total": 12,
-  "data": [
-    {
-      "title": "Solo Leveling Season 2",
-      "link": "https://otakudesu.best/anime/solo-leveling-s2-sub-indo/",
-      "image": "https://otakudesu.best/wp-content/...",
-      "slug": "solo-leveling-s2-sub-indo",
-      "episode": "Episode 12"
-    }
-  ]
-}
+  console.log(result);
+})();
 ```
 
-**GET /api/search?q=naruto**
-```json
-{
-  "success": true,
-  "query": "naruto",
-  "total": 5,
-  "results": [...]
-}
-```
+### Contoh response
 
-**GET /api/anime/solo-leveling-s2-sub-indo**
 ```json
 {
-  "success": true,
+  "statusCode": 200,
+  "statusMessage": "OK",
+  "message": "",
   "data": {
-    "title": "Solo Leveling Season 2",
-    "image": "...",
-    "synopsis": "...",
-    "info": {...},
-    "episodes": [...],
-    "totalEpisodes": 12
-  }
+    "animeList": [
+      {
+        "title": "Dr. Stone Season 3 Part 2",
+        "poster": "https://otakudesu.cloud/wp-content/uploads/2024/01/Dr.-Stone-Season-3-Part-2-Sub-Indo.jpg",
+        "episodes": "11",
+        "animeId": "drstn-s3-p2-sub-indo",
+        "latestReleaseDate": "05 Jan",
+        "releaseDay": "Jum'at",
+        "otakudesuUrl": "https://otakudesu.cloud/anime/drstn-s3-p2-sub-indo/"
+      },
+      {"..."}
+    ]
+  },
+  "pagination": {
+    "currentPage": 1,
+    "prevPage": null,
+    "hasPrevPage": false,
+    "nextPage": 2,
+    "hasNextPage": true,
+    "totalPages": 4
+  },
 }
 ```
-
-## 🚀 Deployment
-
-### Vercel
-```bash
-npm i -g vercel
-npm run snapshot:generate
-vercel
-```
-
-Jika data kosong di Vercel (terkena anti-bot), set environment variable:
-
-SCRAPER_BACKEND_URL=https://your-scraper-backend.example.com
-
-Lalu jalankan scraper utama di Railway/Render/VPS, dan Vercel akan otomatis proxy semua endpoint /anime/* ke backend tersebut.
-
-Alternatif tanpa VPS (mode snapshot):
-
-1. Generate snapshot sebelum deploy:
-
-```bash
-npm run snapshot:generate
-```
-
-Snapshot generator sekarang membuat format terpecah:
-
-- `snapshot-manifest.json`
-- `snapshots/snapshot-<fitur>-<index>.json`
-
-Contoh: `snapshots/snapshot-episode-1.json`, `snapshots/snapshot-anime-detail-2.json`.
-
-Atur batas ukuran per file chunk (default sekitar 95 MB):
-
-```bash
-SNAPSHOT_MAX_CHUNK_BYTES=99614720
-```
-
-Runtime akan otomatis baca `snapshot-manifest.json` + file chunk. Untuk kompatibilitas lama, file `snapshot.json` tunggal tetap bisa dipakai jika ada.
-
-2. Deploy ke Vercel seperti biasa.
-3. (Opsional) paksa endpoint pakai snapshot dengan env berikut:
-
-FORCE_SNAPSHOT_MODE=true
-
-Dengan mode ini, endpoint seperti `/anime/unlimited`, `/anime/ongoing-anime?page=1`, dan `/anime/complete-anime?page=1` tetap non-empty walau scraping live kena blokir.
-
-### Auto Sync Snapshot (GitHub Actions)
-
-Repository ini sudah menyediakan workflow terjadwal di `.github/workflows/auto-snapshot-sync.yml` untuk:
-
-1. Menjalankan `npm run snapshot:generate` tiap 6 jam.
-2. Commit perubahan `snapshot-manifest.json`, `snapshots/*`, dan `snapshot.json` jika ada update data.
-3. Push ke branch aktif agar memicu redeploy otomatis (jika Vercel terhubung ke repo).
-
-Jalankan manual kapan saja dari tab Actions dengan workflow `Auto Snapshot Sync`.
-
-Opsional: jika ingin memicu deploy hook Vercel setelah snapshot berubah, tambahkan secret repo berikut:
-
-- `VERCEL_DEPLOY_HOOK_URL`
-
-### Railway
-1. Push ke GitHub
-2. Connect di [Railway.app](https://railway.app)
-3. Deploy otomatis
-
-### VPS dengan PM2
-```bash
-npm install -g pm2
-pm2 start index.js --name otakudesu-api
-pm2 save
-pm2 startup
-```
-
-## 🛠️ Tech Stack
-
-- Node.js + Express
-- Axios + Cheerio
-- CORS enabled
-
-## 📝 Notes
-
-- Real-time scraping, response time tergantung website target
-- Fallback ke mock data jika scraping gagal
-- Untuk production: tambahkan rate limiting & caching
-
-## ⭐ Support
-
-Give a ⭐️ if this project helped you!
-
-## 📄 License
-
-MIT
-
----
-
-**Disclaimer:** Hanya untuk edukasi. Data dari [Otakudesu](https://otakudesu.best). Use responsibly.
