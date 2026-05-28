@@ -8,7 +8,7 @@ import kuramanimeRouter from "@routes/kuramanime.routes.js";
 import setPayload from "@helpers/setPayload.js";
 import cors from "cors";
 
-const { PORT } = appConfig;
+const PORT = process.env.PORT ? Number(process.env.PORT) : appConfig.PORT;
 const app = express();
 
 app.use(cors());
