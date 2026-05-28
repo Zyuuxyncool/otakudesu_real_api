@@ -1,4 +1,5 @@
 import errorinCuy from "./errorinCuy.js";
+import axiosInstance from "./axiosInstance.js";
 import sanitizeHtml from "sanitize-html";
 
 export const userAgent =
@@ -10,23 +11,24 @@ export default async function getHTML(
   ref?: string,
   sanitize = false
 ): Promise<string> {
-  const url = new URL(pathname, baseUrl);
-  const headers: Record<string, string> = {
-    "User-Agent": userAgent,
-  };
+  const headers: Record<string, string> = {};
 
   if (ref) {
     headers.Referer = ref.startsWith("http") ? ref : new URL(ref, baseUrl).toString();
   }
 
-  // Otakudesu domain frequently issues 301/302; follow redirects to avoid false 404 responses.
-  const response = await fetch(url, { headers, redirect: "follow" });
+  // Axios follows redirects and keeps the browser-like headers needed by the upstream site.
+  const response = await axiosInstance.get<string>(pathname, {
+    headers,
+    responseType: "text",
+    validateStatus: () => true,
+  });
 
-  if (!response.ok) {
-    response.status > 399 ? errorinCuy(response.status) : errorinCuy(404);
+  if (response.status >= 400) {
+    errorinCuy(response.status);
   }
 
-  const html = await response.text();
+  const html = response.data;
 
   if (!html.trim()) errorinCuy(404);
 
