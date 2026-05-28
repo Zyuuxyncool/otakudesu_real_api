@@ -16,10 +16,11 @@ export default async function getHTML(
   };
 
   if (ref) {
-    headers.Refferer = ref.startsWith("http") ? ref : new URL(ref, baseUrl).toString();
+    headers.Referer = ref.startsWith("http") ? ref : new URL(ref, baseUrl).toString();
   }
 
-  const response = await fetch(url, { headers, redirect: "manual" });
+  // Otakudesu domain frequently issues 301/302; follow redirects to avoid false 404 responses.
+  const response = await fetch(url, { headers, redirect: "follow" });
 
   if (!response.ok) {
     response.status > 399 ? errorinCuy(response.status) : errorinCuy(404);
