@@ -1,15 +1,15 @@
-name: Hugging Face Keep Alive
+name: Codespaces Keep Alive
 
 on:
   schedule:
-    # Berjalan otomatis setiap 20 menit tanpa perlu kamu push kode
-    - cron: '*/20 * * * *'
+    # ⚡ Berjalan otomatis setiap 5 menit sekali agar terminal npm run dev tidak mati
+    - cron: '*/5 * * * *'
   workflow_dispatch: # Supaya bisa kamu klik tombol "Run" manual dari web GitHub
 
 jobs:
-  ping-hf:
+  ping-codespaces:
     runs-on: ubuntu-latest
     steps:
-      - name: Hit Hugging Face Endpoint
+      - name: Hit Codespaces Forwarded Port
         run: |
-          curl -s https://zyuuxyncool-otakudesu-real-api.hf.space/health
+          curl -s https://stunning-waffle-v6g7vwwwrw5qh5vq-3001.app.github.dev/
