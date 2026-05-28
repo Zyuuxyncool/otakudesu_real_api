@@ -7,7 +7,7 @@ import samehadakuRouter from "./routes/samehadaku.routes.js";
 import kuramanimeRouter from "./routes/kuramanime.routes.js";
 import setPayload from "./helpers/setPayload.js";
 import cors from "cors";
-const { PORT } = appConfig;
+const PORT = process.env.PORT ? Number(process.env.PORT) : appConfig.PORT;
 const app = express();
 app.use(cors());
 app.use(clientCache(1));
@@ -36,6 +36,6 @@ app.use("/otakudesu", otakudesuRouter);
 app.use("/kuramanime", kuramanimeRouter);
 app.use("/samehadaku", samehadakuRouter);
 app.use(errorHandler);
-app.listen(PORT, () => {
-    console.log(`server is running on http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`server is running on http://0.0.0.0:${PORT}`);
 });

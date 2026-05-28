@@ -1,19 +1,22 @@
 import errorinCuy from "./errorinCuy.js";
+import axiosInstance from "./axiosInstance.js";
 import sanitizeHtml from "sanitize-html";
 export const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0";
 export default async function getHTML(baseUrl, pathname, ref, sanitize = false) {
-    const url = new URL(pathname, baseUrl);
-    const headers = {
-        "User-Agent": userAgent,
-    };
+    const headers = {};
     if (ref) {
-        headers.Refferer = ref.startsWith("http") ? ref : new URL(ref, baseUrl).toString();
+        headers.Referer = ref.startsWith("http") ? ref : new URL(ref, baseUrl).toString();
     }
-    const response = await fetch(url, { headers, redirect: "manual" });
-    if (!response.ok) {
-        response.status > 399 ? errorinCuy(response.status) : errorinCuy(404);
+    // Axios follows redirects and keeps the browser-like headers needed by the upstream site.
+    const response = await axiosInstance.get(pathname, {
+        headers,
+        responseType: "text",
+        validateStatus: () => true,
+    });
+    if (response.status >= 400) {
+        errorinCuy(response.status);
     }
-    const html = await response.text();
+    const html = response.data;
     if (!html.trim())
         errorinCuy(404);
     if (sanitize) {
