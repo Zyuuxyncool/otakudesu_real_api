@@ -1,0 +1,15 @@
+name: Codespaces Keep Alive
+
+on:
+  schedule:
+    # ⚡ Berjalan otomatis setiap 5 menit sekali agar terminal npm run dev tidak mati
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Supaya bisa kamu klik tombol "Run" manual dari web GitHub
+
+jobs:
+  ping-codespaces:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit Codespaces Forwarded Port
+        run: |
+          curl -s https://stunning-waffle-v6g7vwwwrw5qh5vq-3001.app.github.dev/
