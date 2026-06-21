@@ -164,12 +164,14 @@ function createRequest(req: AppwriteRequest, params: Record<string, string>) {
 
 function normalizePathname(pathname: string) {
   const prefix = "/otakudesu";
-  if (pathname.startsWith(prefix)) {
-    const trimmed = pathname.slice(prefix.length);
+  const index = pathname.indexOf(prefix);
+
+  if (index !== -1) {
+    const trimmed = pathname.slice(index + prefix.length);
     return trimmed === "" ? "/" : trimmed;
   }
 
-  return pathname;
+  return pathname.replace(/\/+$|^\s+|\s+$/g, "") || "/";
 }
 
 export default async function (req: IncomingMessage & AppwriteRequest, res?: ServerResponse) {
