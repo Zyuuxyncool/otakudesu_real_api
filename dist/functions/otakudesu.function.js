@@ -129,7 +129,11 @@ export default async function (req, res) {
             statusCode: 404,
             statusMessage: "Not Found",
             message: "Route not found",
-            data: null,
+            data: {
+                requestedUrl: req.url,
+                pathname: url.pathname,
+                normalizedPathname: pathname,
+            },
             pagination: null,
         });
         if (!res) {
