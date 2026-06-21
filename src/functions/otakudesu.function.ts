@@ -51,7 +51,15 @@ function parseQueryParams(url: URL) {
   return Object.fromEntries(url.searchParams.entries());
 }
 
-function createResponse(res: ServerResponse): AppwriteResponse {
+interface InMemoryResponse {
+  statusCode: number;
+  statusMessage: string;
+  payload?: unknown;
+  status(code: number): InMemoryResponse;
+  json(payload: unknown): void;
+}
+
+function createNativeResponse(res: ServerResponse): AppwriteResponse {
   const appwriteRes = res as AppwriteResponse;
   appwriteRes.statusCode = 200;
   appwriteRes.statusMessage = "OK";
@@ -71,6 +79,31 @@ function createResponse(res: ServerResponse): AppwriteResponse {
   };
 
   return appwriteRes;
+}
+
+function createInMemoryResponse(): InMemoryResponse {
+  const response: InMemoryResponse = {
+    statusCode: 200,
+    statusMessage: "OK",
+    payload: null,
+    status(code: number) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload: unknown) {
+      this.payload = payload;
+    },
+  };
+
+  return response;
+}
+
+function createResponse(res?: ServerResponse): AppwriteResponse | InMemoryResponse {
+  if (!res) {
+    return createInMemoryResponse();
+  }
+
+  return createNativeResponse(res);
 }
 
 function matchRoute(pathname: string, method: string) {
@@ -139,7 +172,7 @@ function normalizePathname(pathname: string) {
   return pathname;
 }
 
-export default async function (req: IncomingMessage & AppwriteRequest, res: ServerResponse) {
+export default async function (req: IncomingMessage & AppwriteRequest, res?: ServerResponse) {
   const url = parseUrl(req);
   const pathname = normalizePathname(url.pathname);
   const method = req.method?.toUpperCase() || "GET";
@@ -154,6 +187,10 @@ export default async function (req: IncomingMessage & AppwriteRequest, res: Serv
       data: null,
       pagination: null,
     });
+
+    if (!res) {
+      return (appwriteRes as InMemoryResponse).payload;
+    }
     return;
   }
 
@@ -191,5 +228,9 @@ export default async function (req: IncomingMessage & AppwriteRequest, res: Serv
     await handler(requestObject as any, responseProxy, next);
   } catch (error) {
     next(error);
+  }
+
+  if (!res) {
+    return (appwriteRes as InMemoryResponse).payload;
   }
 }

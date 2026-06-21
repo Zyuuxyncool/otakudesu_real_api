@@ -27,7 +27,7 @@ function parseUrl(req) {
 function parseQueryParams(url) {
     return Object.fromEntries(url.searchParams.entries());
 }
-function createResponse(res) {
+function createNativeResponse(res) {
     const appwriteRes = res;
     appwriteRes.statusCode = 200;
     appwriteRes.statusMessage = "OK";
@@ -43,6 +43,27 @@ function createResponse(res) {
         this.end(JSON.stringify(payload));
     };
     return appwriteRes;
+}
+function createInMemoryResponse() {
+    const response = {
+        statusCode: 200,
+        statusMessage: "OK",
+        payload: null,
+        status(code) {
+            this.statusCode = code;
+            return this;
+        },
+        json(payload) {
+            this.payload = payload;
+        },
+    };
+    return response;
+}
+function createResponse(res) {
+    if (!res) {
+        return createInMemoryResponse();
+    }
+    return createNativeResponse(res);
 }
 function matchRoute(pathname, method) {
     const normalizedPath = pathname.replace(/\/+$/, "") || "/";
@@ -110,6 +131,9 @@ export default async function (req, res) {
             data: null,
             pagination: null,
         });
+        if (!res) {
+            return appwriteRes.payload;
+        }
         return;
     }
     const requestObject = createRequest(req, match.params);
@@ -142,5 +166,8 @@ export default async function (req, res) {
     }
     catch (error) {
         next(error);
+    }
+    if (!res) {
+        return appwriteRes.payload;
     }
 }
