@@ -189,7 +189,7 @@ const kuramanimeController = {
 
   async getHome(req: Request, res: Response, next: NextFunction) {
     try {
-      const document = await kuramanimeScraper.scrapeDOM("/", "https://google.com");
+      const document = await kuramanimeScraper.scrapeDOM("/", baseUrl);
       const home = kuramanimeParser.parseHome(document);
       const payload = setPayload(res, {
         data: home,
