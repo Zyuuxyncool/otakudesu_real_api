@@ -1,4 +1,5 @@
 import otakudesuConfig from "@configs/otakudesu.config.js";
+import axiosInstance from "@helpers/axiosInstance.js";
 import getHTML from "@helpers/getHTML.js";
 import { parse, type HTMLElement } from "node-html-parser";
 
@@ -15,35 +16,43 @@ const otakudesuScraper = {
   },
 
   async scrapeNonce(body: string, referer: string): Promise<{ data?: string }> {
-    const nonceResponse = await fetch(new URL("/wp-admin/admin-ajax.php", baseUrl), {
-      method: "POST",
+    const nonceResponse = await axiosInstance.post<{ data?: string }>(
+      "/wp-admin/admin-ajax.php",
       body,
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        Referer: referer,
-        Origin: baseUrl,
-      },
-    });
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+          Referer: referer,
+          Origin: baseUrl,
+          Accept: "application/json, text/javascript, */*; q=0.01",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        responseType: "json",
+        validateStatus: () => true,
+      }
+    );
 
-    const nonce = (await nonceResponse.json()) as { data: string };
-
-    return nonce;
+    return nonceResponse.data;
   },
 
   async scrapeServer(body: string, referer: string): Promise<{ data?: string }> {
-    const serverResponse = await fetch(new URL("/wp-admin/admin-ajax.php", baseUrl), {
-      method: "POST",
+    const serverResponse = await axiosInstance.post<{ data?: string }>(
+      "/wp-admin/admin-ajax.php",
       body,
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        Origin: baseUrl,
-        Referer: referer,
-      },
-    });
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+          Origin: baseUrl,
+          Referer: referer,
+          Accept: "application/json, text/javascript, */*; q=0.01",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        responseType: "json",
+        validateStatus: () => true,
+      }
+    );
 
-    const server = (await serverResponse.json()) as { data: string };
-
-    return server;
+    return serverResponse.data;
   },
 };
 

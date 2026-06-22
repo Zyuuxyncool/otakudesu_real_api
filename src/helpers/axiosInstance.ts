@@ -11,6 +11,8 @@ const axiosInstance = axios.create({
     "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
     Referer: "https://otakudesu.blog/",
     "Upgrade-Insecure-Requests": "1",
+    "Cache-Control": "max-age=0",
+    Connection: "keep-alive",
   },
 });
 
